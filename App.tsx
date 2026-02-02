@@ -18,12 +18,21 @@ const App: React.FC = () => {
 
   // Initial Load
   useEffect(() => {
-    const saved = localStorage.getItem('family_payments');
-    if (saved) {
-      setPayments(JSON.parse(saved));
-    } else {
-      setPayments(INITIAL_DATA.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()));
+    try {
+      const saved = localStorage.getItem('family_payments');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPayments(parsed);
+          return;
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load data from storage", e);
     }
+    
+    // Fallback to initial data
+    setPayments([...INITIAL_DATA].sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()));
   }, []);
 
   // Save on Change
@@ -34,11 +43,13 @@ const App: React.FC = () => {
   }, [payments]);
 
   const filteredPayments = useMemo(() => {
+    const term = searchTerm.toLowerCase();
     return payments
-      .filter(p => 
-        p.paymentDate.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (p.checkNumber && p.checkNumber.toLowerCase().includes(searchTerm.toLowerCase()))
-      )
+      .filter(p => {
+        const dateMatch = (p.paymentDate || '').toLowerCase().includes(term);
+        const checkMatch = p.checkNumber ? String(p.checkNumber).toLowerCase().includes(term) : false;
+        return dateMatch || checkMatch;
+      })
       .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
   }, [payments, searchTerm]);
 
@@ -47,10 +58,10 @@ const App: React.FC = () => {
     const latest = sorted[0];
     
     return payments.reduce((acc, curr) => {
-      acc.totalPrincipalPaid += curr.principalPaid;
-      acc.totalInterestPaid += Math.abs(curr.interestPaid);
-      acc.totalTaxesPaid += curr.taxesPaid;
-      acc.totalInsurancePaid += curr.insurancePaid;
+      acc.totalPrincipalPaid += (curr.principalPaid || 0);
+      acc.totalInterestPaid += Math.abs(curr.interestPaid || 0);
+      acc.totalTaxesPaid += (curr.taxesPaid || 0);
+      acc.totalInsurancePaid += (curr.insurancePaid || 0);
       acc.paymentCount += 1;
       return acc;
     }, {
