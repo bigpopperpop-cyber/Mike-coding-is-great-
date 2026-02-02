@@ -1,0 +1,5 @@
+{
+  "name": "Family Home Payment Tracker",
+  "description": "A user-friendly home mortgage and payment dashboard designed for simplicity, allowing tracking of principal, interest, taxes, and insurance payments with historical data visualization.",
+  "requestFramePermissions": []
+}
