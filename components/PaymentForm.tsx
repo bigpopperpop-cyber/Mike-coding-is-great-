@@ -14,7 +14,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
   const [formData, setFormData] = useState<Partial<PaymentRecord>>({
     paymentDate: new Date().toISOString().split('T')[0],
     totalPayment: 1800,
-    interestRate: 0.028,
+    interestRate: 2.8,
     principalPaid: 0,
     interestPaid: 0,
     taxesPaid: 0,
@@ -39,8 +39,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
 
   const suggestSplit = () => {
     const balance = Number(formData.principalBalance) || 0;
-    const rate = Number(formData.interestRate) || 0.028;
-    const estimatedInterest = (balance * rate) / 12;
+    const rate = Number(formData.interestRate) || 2.8;
+    // annualRate is expected as a percentage (e.g. 2.8 for 2.8%)
+    const estimatedInterest = (balance * (rate / 100)) / 12;
     const suggestedPrincipal = netForLoan - estimatedInterest;
     
     setFormData(prev => ({
@@ -52,11 +53,11 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Removed rowNumber property as it does not exist on PaymentRecord
     const finalData: PaymentRecord = {
       id: payment?.id || Date.now().toString(),
-      rowNumber: payment?.rowNumber || 0,
       paymentDate: formData.paymentDate || new Date().toISOString().split('T')[0],
-      interestRate: Number(formData.interestRate) || 0.028,
+      interestRate: Number(formData.interestRate) || 2.8,
       principalBalance: Number(formData.principalBalance) || 0,
       principalPaid: Number(formData.principalPaid) || 0,
       interestPaid: Number(formData.interestPaid) || 0,

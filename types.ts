@@ -1,31 +1,8 @@
 
-export interface MortgagePayment {
-  id: string;
-  date: string;
-  amountPaid: number;
-  interestRate: number;
-  principalPart: number;
-  interestPart: number;
-  taxesPart: number;
-  insurancePart: number;
-  remainingBalance: number;
-  note: string;
-}
-
-export interface MortgageStats {
-  originalBalance: number;
-  currentBalance: number;
-  totalPaid: number;
-  totalInterest: number;
-  totalTaxesAndInsurance: number;
-}
-
-// Added to fix component errors
 export interface PaymentRecord {
   id: string;
-  rowNumber: number;
   paymentDate: string;
-  interestRate: number;
+  interestRate: number; // e.g., 2.8
   principalBalance: number;
   principalPaid: number;
   interestPaid: number;
@@ -33,13 +10,19 @@ export interface PaymentRecord {
   insurancePaid: number;
   totalPayment: number;
   checkNumber: string;
+  note?: string;
 }
 
-// Added to fix component errors
 export interface SummaryStats {
   remainingBalance: number;
   totalPrincipalPaid: number;
   totalInterestPaid: number;
   totalTaxesPaid: number;
   totalInsurancePaid: number;
+  originalBalance: number;
+}
+
+export interface AppSettings {
+  initialBalance: number;
+  houseNickName: string;
 }

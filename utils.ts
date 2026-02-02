@@ -7,27 +7,25 @@ export const formatCurrency = (amount: number) => {
 };
 
 export const formatDate = (dateStr: string) => {
+  if (!dateStr) return 'N/A';
   return new Date(dateStr).toLocaleDateString('en-US', {
-    month: 'long',
-    year: 'numeric',
-    day: 'numeric'
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
   });
 };
 
-export const calculateInterestSplit = (balance: number, rate: number, payment: number) => {
-  const monthlyRate = (rate / 100) / 12;
+export const calculateInterestSplit = (balance: number, annualRate: number, netPayment: number) => {
+  // annualRate is expected as a percentage (e.g. 2.8 for 2.8%)
+  const monthlyRate = (annualRate / 100) / 12;
   const interest = balance * monthlyRate;
-  const principal = payment - interest;
+  const principal = netPayment - interest;
   return {
     interest: Number(interest.toFixed(2)),
     principal: Number(principal.toFixed(2))
   };
 };
 
-// Added to fix component errors
-/**
- * Triggers a file download in the browser.
- */
 export const downloadFile = (content: string, fileName: string, contentType: string) => {
   const blob = new Blob([content], { type: contentType });
   const url = URL.createObjectURL(blob);
@@ -40,10 +38,6 @@ export const downloadFile = (content: string, fileName: string, contentType: str
   URL.revokeObjectURL(url);
 };
 
-// Added to fix component errors
-/**
- * Converts an array of objects into a CSV string.
- */
 export const convertToCSV = (data: any[]) => {
   if (!data || data.length === 0) return '';
   const headers = Object.keys(data[0]);
