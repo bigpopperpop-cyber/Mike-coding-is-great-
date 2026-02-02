@@ -16,7 +16,6 @@ const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'table' | 'charts'>('table');
 
-  // Initial Load
   useEffect(() => {
     try {
       const saved = localStorage.getItem('family_payments');
@@ -30,12 +29,9 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to load data from storage", e);
     }
-    
-    // Fallback to initial data
     setPayments([...INITIAL_DATA].sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()));
   }, []);
 
-  // Save on Change
   useEffect(() => {
     if (payments.length > 0) {
       localStorage.setItem('family_payments', JSON.stringify(payments));
@@ -97,7 +93,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-20 md:pb-0 md:pl-64">
-      {/* Side Navigation (Desktop) */}
       <aside className="fixed left-0 top-0 hidden h-full w-64 flex-col bg-white border-r border-slate-200 md:flex">
         <div className="p-6 flex items-center gap-3 border-b border-slate-100">
           <div className="bg-blue-600 p-2 rounded-lg text-white">
@@ -132,7 +127,6 @@ const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Mobile Header */}
       <header className="md:hidden bg-white border-b border-slate-200 p-4 sticky top-0 z-10 flex justify-between items-center">
         <h1 className="text-lg font-bold text-slate-800">Home Payments</h1>
         <button 
@@ -143,18 +137,14 @@ const App: React.FC = () => {
         </button>
       </header>
 
-      {/* Main Content Area */}
       <main className="p-4 md:p-8 max-w-7xl mx-auto">
-        {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-3xl font-extrabold text-slate-900">Hello, Ma'am!</h2>
           <p className="text-slate-500 text-lg mt-1">Here is a summary of the house payments and balance.</p>
         </div>
 
-        {/* Dashboard Stats */}
         <Stats stats={stats} />
 
-        {/* Tab Controls for Mobile */}
         <div className="flex md:hidden bg-slate-200 p-1 rounded-xl mb-6">
           <button 
             onClick={() => setActiveTab('table')}
@@ -202,17 +192,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Floating Action Button (Mobile Only) */}
-      <div className="fixed bottom-6 right-6 md:hidden">
-        <button 
-           onClick={() => { setEditingPayment(undefined); setIsFormOpen(true); }}
-           className="bg-blue-600 hover:bg-blue-700 text-white p-5 rounded-full shadow-2xl flex items-center justify-center transition-transform active:scale-90"
-        >
-          <PlusCircle size={28} />
-        </button>
-      </div>
-
-      {/* Payment Form Modal */}
       {isFormOpen && (
         <PaymentForm 
           payment={editingPayment} 
