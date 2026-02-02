@@ -1,5 +1,5 @@
 
-import { PaymentRecord } from './types';
+import { PaymentRecord } from './types.ts';
 
 // This is extracted from the user's input for performance and reliability
 export const INITIAL_DATA: PaymentRecord[] = [

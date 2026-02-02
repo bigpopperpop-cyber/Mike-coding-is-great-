@@ -31,23 +31,23 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
 
   // Calculate the "Rest" (Net amount going towards the actual loan)
   const netForLoan = useMemo(() => {
-    const total = formData.totalPayment || 0;
-    const taxes = formData.taxesPaid || 0;
-    const insurance = formData.insurancePaid || 0;
+    const total = formData.totalPayment ?? 0;
+    const taxes = formData.taxesPaid ?? 0;
+    const insurance = formData.insurancePaid ?? 0;
     return Math.max(0, total - taxes - insurance);
   }, [formData.totalPayment, formData.taxesPaid, formData.insurancePaid]);
 
   // Helper to suggest the principal/interest split based on current data
   const suggestSplit = () => {
-    const balance = formData.principalBalance || 0;
-    const rate = formData.interestRate || 0.028;
+    const balance = formData.principalBalance ?? 0;
+    const rate = formData.interestRate ?? 0.028;
     // Monthly interest estimate
     const estimatedInterest = (balance * rate) / 12;
     const suggestedPrincipal = netForLoan - estimatedInterest;
     
     setFormData(prev => ({
       ...prev,
-      interestPaid: -Math.abs(estimatedInterest), // Keep internal consistency with negative values if needed
+      interestPaid: -Math.abs(estimatedInterest), 
       principalPaid: Number(suggestedPrincipal.toFixed(2))
     }));
   };
@@ -57,10 +57,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
     onSave({
       ...formData as PaymentRecord,
       id: payment?.id || Date.now().toString(),
-      // Ensure we don't save undefined
-      taxesPaid: formData.taxesPaid || 0,
-      insurancePaid: formData.insurancePaid || 0,
-      principalPaid: formData.principalPaid || 0,
+      taxesPaid: formData.taxesPaid ?? 0,
+      insurancePaid: formData.insurancePaid ?? 0,
+      principalPaid: formData.principalPaid ?? 0,
+      totalPayment: formData.totalPayment ?? 0,
+      interestPaid: formData.interestPaid ?? 0,
+      principalBalance: formData.principalBalance ?? 0,
+      interestRate: formData.interestRate ?? 0.028,
+      checkNumber: formData.checkNumber ?? '',
+      paymentDate: formData.paymentDate ?? new Date().toISOString().split('T')[0]
     });
   };
 
@@ -84,6 +89,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
           </div>
           <button 
             onClick={onClose}
+            type="button"
             className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 shadow-sm transition-all active:scale-90"
           >
             <X size={20} />
@@ -91,7 +97,6 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[85vh] overflow-y-auto">
-          {/* Top Section: Date & Check */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Payment Date</label>
@@ -99,7 +104,7 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                 type="date" 
                 required
                 className={inputClass}
-                value={formData.paymentDate}
+                value={formData.paymentDate ?? ''}
                 onChange={(e) => setFormData(f => ({ ...f, paymentDate: e.target.value }))}
               />
             </div>
@@ -109,14 +114,13 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                 type="text" 
                 className={inputClass}
                 placeholder="e.g., 4943"
-                value={formData.checkNumber}
+                value={formData.checkNumber ?? ''}
                 onChange={(e) => setFormData(f => ({ ...f, checkNumber: e.target.value }))}
               />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left Column: The Check Amount */}
             <div className="space-y-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <h3 className="font-bold text-slate-700 flex items-center gap-2">
                 <Landmark size={18} className="text-blue-500" />
@@ -130,10 +134,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                   step="0.01"
                   required
                   className={inputClass}
-                  value={formData.totalPayment}
+                  value={formData.totalPayment ?? ''}
                   onChange={(e) => setFormData(f => ({ ...f, totalPayment: parseFloat(e.target.value) || 0 }))}
                 />
-                <p className="text-xs text-slate-400 mt-1">The total amount on the check.</p>
               </div>
 
               <div className="pt-2">
@@ -147,11 +150,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                     style={{ width: `${Math.min(100, (netForLoan / (formData.totalPayment || 1)) * 100)}%` }}
                   />
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">Remaining after taxes and insurance</p>
               </div>
             </div>
 
-            {/* Right Column: Taxes & Escrow */}
             <div className="space-y-4 p-4 bg-rose-50/30 rounded-2xl border border-rose-100">
               <h3 className="font-bold text-rose-700 flex items-center gap-2">
                 <ShieldCheck size={18} className="text-rose-500" />
@@ -163,9 +164,9 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                 <input 
                   type="number" 
                   step="0.01"
-                  className={`${inputClass} border-rose-100 focus:border-rose-400`}
+                  className={inputClass}
                   placeholder="0.00"
-                  value={formData.taxesPaid || ''}
+                  value={formData.taxesPaid ?? ''}
                   onChange={(e) => setFormData(f => ({ ...f, taxesPaid: parseFloat(e.target.value) || 0 }))}
                 />
               </div>
@@ -175,16 +176,15 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                 <input 
                   type="number" 
                   step="0.01"
-                  className={`${inputClass} border-rose-100 focus:border-rose-400`}
+                  className={inputClass}
                   placeholder="0.00"
-                  value={formData.insurancePaid || ''}
+                  value={formData.insurancePaid ?? ''}
                   onChange={(e) => setFormData(f => ({ ...f, insurancePaid: parseFloat(e.target.value) || 0 }))}
                 />
               </div>
             </div>
           </div>
 
-          {/* Bottom Section: Loan Math */}
           <div className="space-y-4 p-5 bg-emerald-50/30 rounded-2xl border border-emerald-100">
              <div className="flex justify-between items-center">
                 <h3 className="font-bold text-emerald-700">Principal & Balance</h3>
@@ -204,8 +204,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                   <input 
                     type="number" 
                     step="0.01"
-                    className={`${inputClass} border-emerald-100 focus:border-emerald-400`}
-                    value={formData.principalPaid}
+                    className={inputClass}
+                    value={formData.principalPaid ?? ''}
                     onChange={(e) => setFormData(f => ({ ...f, principalPaid: parseFloat(e.target.value) || 0 }))}
                   />
                 </div>
@@ -214,8 +214,8 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                   <input 
                     type="number" 
                     step="0.01"
-                    className={`${inputClass} border-emerald-100 focus:border-emerald-400`}
-                    value={formData.principalBalance}
+                    className={inputClass}
+                    value={formData.principalBalance ?? ''}
                     onChange={(e) => setFormData(f => ({ ...f, principalBalance: parseFloat(e.target.value) || 0 }))}
                   />
                 </div>
