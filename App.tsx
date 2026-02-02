@@ -30,7 +30,6 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to load data from storage", e);
     }
-    // Default data if nothing in storage
     const sortedInitial = [...INITIAL_DATA].sort((a, b) => 
       new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
     );
