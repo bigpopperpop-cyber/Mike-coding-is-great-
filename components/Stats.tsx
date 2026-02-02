@@ -1,7 +1,7 @@
 
 import React from 'react';
-import { SummaryStats } from '../types';
-import { formatCurrency } from '../utils';
+import { SummaryStats } from '../types.ts';
+import { formatCurrency } from '../utils.ts';
 import { Wallet, Landmark, ReceiptText, ShieldAlert } from 'lucide-react';
 
 interface StatsProps {

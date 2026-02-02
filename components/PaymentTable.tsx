@@ -1,8 +1,7 @@
 
 import React from 'react';
-import { PaymentRecord } from '../types';
-import { formatCurrency, formatDate } from '../utils';
-// Added ReceiptText to imports
+import { PaymentRecord } from '../types.ts';
+import { formatCurrency, formatDate } from '../utils.ts';
 import { Edit2, Trash2, CheckCircle2, ReceiptText } from 'lucide-react';
 
 interface PaymentTableProps {

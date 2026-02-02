@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { PaymentRecord } from '../types';
+import { PaymentRecord } from '../types.ts';
 import { X, Save, AlertCircle } from 'lucide-react';
 
 interface PaymentFormProps {

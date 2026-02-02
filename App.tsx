@@ -1,13 +1,13 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { PaymentRecord, SummaryStats } from './types';
-import { INITIAL_DATA } from './data';
-import { formatCurrency, formatDate } from './utils';
-import PaymentTable from './components/PaymentTable';
-import PaymentForm from './components/PaymentForm';
-import Stats from './components/Stats';
-import Charts from './components/Charts';
-import { PlusCircle, Search, Home, FileText, BarChart3, Settings } from 'lucide-react';
+import { PaymentRecord, SummaryStats } from './types.ts';
+import { INITIAL_DATA } from './data.ts';
+import { formatCurrency, formatDate } from './utils.ts';
+import PaymentTable from './components/PaymentTable.tsx';
+import PaymentForm from './components/PaymentForm.tsx';
+import Stats from './components/Stats.tsx';
+import Charts from './components/Charts.tsx';
+import { PlusCircle, Search, Home, FileText, BarChart3 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -37,7 +37,7 @@ const App: React.FC = () => {
     return payments
       .filter(p => 
         p.paymentDate.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        p.checkNumber.toLowerCase().includes(searchTerm.toLowerCase())
+        (p.checkNumber && p.checkNumber.toLowerCase().includes(searchTerm.toLowerCase()))
       )
       .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
   }, [payments, searchTerm]);

@@ -12,8 +12,8 @@ import {
   Bar,
   Legend
 } from 'recharts';
-import { PaymentRecord } from '../types';
-import { formatCurrency } from '../utils';
+import { PaymentRecord } from '../types.ts';
+import { formatCurrency } from '../utils.ts';
 
 interface ChartsProps {
   payments: PaymentRecord[];
@@ -24,7 +24,6 @@ const Charts: React.FC<ChartsProps> = ({ payments }) => {
     .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
     .slice(-12) // Show last 12 records
     .map(p => ({
-      // Fixed year option from '2y' to '2-digit'
       date: new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
       balance: p.principalBalance,
       paid: p.principalPaid,
