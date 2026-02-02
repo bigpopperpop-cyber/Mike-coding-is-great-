@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { PaymentRecord } from '../types.ts';
-import { X, Save, AlertCircle } from 'lucide-react';
+import { X, Save, AlertCircle, Calculator, Landmark, ShieldCheck } from 'lucide-react';
+import { formatCurrency } from '../utils.ts';
 
 interface PaymentFormProps {
   payment?: PaymentRecord;
@@ -28,16 +29,43 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
     }
   }, [payment]);
 
+  // Calculate the "Rest" (Net amount going towards the actual loan)
+  const netForLoan = useMemo(() => {
+    const total = formData.totalPayment || 0;
+    const taxes = formData.taxesPaid || 0;
+    const insurance = formData.insurancePaid || 0;
+    return Math.max(0, total - taxes - insurance);
+  }, [formData.totalPayment, formData.taxesPaid, formData.insurancePaid]);
+
+  // Helper to suggest the principal/interest split based on current data
+  const suggestSplit = () => {
+    const balance = formData.principalBalance || 0;
+    const rate = formData.interestRate || 0.028;
+    // Monthly interest estimate
+    const estimatedInterest = (balance * rate) / 12;
+    const suggestedPrincipal = netForLoan - estimatedInterest;
+    
+    setFormData(prev => ({
+      ...prev,
+      interestPaid: -Math.abs(estimatedInterest), // Keep internal consistency with negative values if needed
+      principalPaid: Number(suggestedPrincipal.toFixed(2))
+    }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
       ...formData as PaymentRecord,
       id: payment?.id || Date.now().toString(),
+      // Ensure we don't save undefined
+      taxesPaid: formData.taxesPaid || 0,
+      insurancePaid: formData.insurancePaid || 0,
+      principalPaid: formData.principalPaid || 0,
     });
   };
 
-  const inputClass = "w-full px-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all text-lg font-medium";
-  const labelClass = "block text-sm font-bold text-slate-600 mb-2 ml-1";
+  const inputClass = "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 outline-none transition-all text-lg font-medium";
+  const labelClass = "block text-sm font-bold text-slate-600 mb-1.5 ml-1";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -46,47 +74,55 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
         onClick={onClose}
       ></div>
       
-      <div className="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl shadow-slate-900/20 overflow-hidden animate-in fade-in zoom-in duration-300">
-        <div className="flex items-center justify-between p-8 border-b border-slate-100 bg-slate-50/50">
+      <div className="relative bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl shadow-slate-900/20 overflow-hidden animate-in fade-in zoom-in duration-300">
+        <div className="flex items-center justify-between p-6 border-b border-slate-100 bg-slate-50/50">
           <div>
             <h2 className="text-2xl font-black text-slate-800">
               {payment ? 'Edit Record' : 'Add New Payment'}
             </h2>
-            <p className="text-slate-500 font-medium">Please fill in the payment details below.</p>
+            <p className="text-slate-500 font-medium">Record monthly house payment details.</p>
           </div>
           <button 
             onClick={onClose}
-            className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-slate-600 shadow-sm transition-all active:scale-90"
+            className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 shadow-sm transition-all active:scale-90"
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-8 max-h-[70vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[85vh] overflow-y-auto">
+          {/* Top Section: Date & Check */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Payment Date</label>
+              <input 
+                type="date" 
+                required
+                className={inputClass}
+                value={formData.paymentDate}
+                onChange={(e) => setFormData(f => ({ ...f, paymentDate: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Check Number</label>
+              <input 
+                type="text" 
+                className={inputClass}
+                placeholder="e.g., 4943"
+                value={formData.checkNumber}
+                onChange={(e) => setFormData(f => ({ ...f, checkNumber: e.target.value }))}
+              />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-6">
-              <div>
-                <label className={labelClass}>Payment Date</label>
-                <input 
-                  type="date" 
-                  required
-                  className={inputClass}
-                  value={formData.paymentDate}
-                  onChange={(e) => setFormData(f => ({ ...f, paymentDate: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Check Number</label>
-                <input 
-                  type="text" 
-                  className={inputClass}
-                  placeholder="e.g., 1234"
-                  value={formData.checkNumber}
-                  onChange={(e) => setFormData(f => ({ ...f, checkNumber: e.target.value }))}
-                />
-              </div>
-
+            {/* Left Column: The Check Amount */}
+            <div className="space-y-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                <Landmark size={18} className="text-blue-500" />
+                Payment Breakdown
+              </h3>
+              
               <div>
                 <label className={labelClass}>Total Paid ($)</label>
                 <input 
@@ -95,66 +131,108 @@ const PaymentForm: React.FC<PaymentFormProps> = ({ payment, onSave, onClose }) =
                   required
                   className={inputClass}
                   value={formData.totalPayment}
-                  onChange={(e) => setFormData(f => ({ ...f, totalPayment: parseFloat(e.target.value) }))}
+                  onChange={(e) => setFormData(f => ({ ...f, totalPayment: parseFloat(e.target.value) || 0 }))}
                 />
+                <p className="text-xs text-slate-400 mt-1">The total amount on the check.</p>
+              </div>
+
+              <div className="pt-2">
+                <div className="flex justify-between items-center mb-1 px-1">
+                   <label className="text-sm font-bold text-slate-600 italic">Net for Mortgage Loan</label>
+                   <span className="text-blue-600 font-black text-lg">{formatCurrency(netForLoan)}</span>
+                </div>
+                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-500" 
+                    style={{ width: `${Math.min(100, (netForLoan / (formData.totalPayment || 1)) * 100)}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-wider">Remaining after taxes and insurance</p>
               </div>
             </div>
 
-            <div className="space-y-6">
-               <div>
-                <label className={labelClass}>Principal Paid ($)</label>
+            {/* Right Column: Taxes & Escrow */}
+            <div className="space-y-4 p-4 bg-rose-50/30 rounded-2xl border border-rose-100">
+              <h3 className="font-bold text-rose-700 flex items-center gap-2">
+                <ShieldCheck size={18} className="text-rose-500" />
+                Taxes & Insurance
+              </h3>
+              
+              <div>
+                <label className={labelClass}>Amount to Taxes ($)</label>
                 <input 
                   type="number" 
                   step="0.01"
-                  className={inputClass}
-                  value={formData.principalPaid}
-                  onChange={(e) => setFormData(f => ({ ...f, principalPaid: parseFloat(e.target.value) }))}
+                  className={`${inputClass} border-rose-100 focus:border-rose-400`}
+                  placeholder="0.00"
+                  value={formData.taxesPaid || ''}
+                  onChange={(e) => setFormData(f => ({ ...f, taxesPaid: parseFloat(e.target.value) || 0 }))}
                 />
               </div>
 
               <div>
-                <label className={labelClass}>Interest Rate (%)</label>
-                <input 
-                  type="number" 
-                  step="0.001"
-                  className={inputClass}
-                  value={formData.interestRate}
-                  onChange={(e) => setFormData(f => ({ ...f, interestRate: parseFloat(e.target.value) }))}
-                />
-              </div>
-
-              <div>
-                <label className={labelClass}>Remaining Balance ($)</label>
+                <label className={labelClass}>Amount to Insurance ($)</label>
                 <input 
                   type="number" 
                   step="0.01"
-                  className={inputClass}
-                  value={formData.principalBalance}
-                  onChange={(e) => setFormData(f => ({ ...f, principalBalance: parseFloat(e.target.value) }))}
+                  className={`${inputClass} border-rose-100 focus:border-rose-400`}
+                  placeholder="0.00"
+                  value={formData.insurancePaid || ''}
+                  onChange={(e) => setFormData(f => ({ ...f, insurancePaid: parseFloat(e.target.value) || 0 }))}
                 />
               </div>
             </div>
           </div>
 
-          <div className="bg-blue-50 p-6 rounded-3xl border border-blue-100 flex gap-4">
-            <AlertCircle className="text-blue-500 shrink-0" />
-            <p className="text-blue-700 text-sm font-medium">
-              Calculations for taxes and interest paid are automatically logged in the system. 
-              Double check the "Principal Paid" to ensure accuracy of the balance.
-            </p>
+          {/* Bottom Section: Loan Math */}
+          <div className="space-y-4 p-5 bg-emerald-50/30 rounded-2xl border border-emerald-100">
+             <div className="flex justify-between items-center">
+                <h3 className="font-bold text-emerald-700">Principal & Balance</h3>
+                <button 
+                  type="button"
+                  onClick={suggestSplit}
+                  className="text-xs bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 hover:bg-emerald-700 transition-colors"
+                >
+                  <Calculator size={14} />
+                  Calculate Principal
+                </button>
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>Principal Paid ($)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    className={`${inputClass} border-emerald-100 focus:border-emerald-400`}
+                    value={formData.principalPaid}
+                    onChange={(e) => setFormData(f => ({ ...f, principalPaid: parseFloat(e.target.value) || 0 }))}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Remaining Balance ($)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    className={`${inputClass} border-emerald-100 focus:border-emerald-400`}
+                    value={formData.principalBalance}
+                    onChange={(e) => setFormData(f => ({ ...f, principalBalance: parseFloat(e.target.value) || 0 }))}
+                  />
+                </div>
+             </div>
           </div>
 
-          <div className="flex gap-4 pt-4 sticky bottom-0 bg-white">
+          <div className="flex gap-4 pt-2">
             <button 
               type="button"
               onClick={onClose}
-              className="flex-1 py-5 rounded-2xl text-slate-600 font-bold border border-slate-200 hover:bg-slate-50 transition-all"
+              className="flex-1 py-4 rounded-xl text-slate-600 font-bold border border-slate-200 hover:bg-slate-50 transition-all"
             >
               Cancel
             </button>
             <button 
               type="submit"
-              className="flex-1 py-5 rounded-2xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+              className="flex-1 py-4 rounded-xl bg-blue-600 text-white font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
             >
               <Save size={20} />
               Save Record
