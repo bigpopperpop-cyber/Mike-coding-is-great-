@@ -2,19 +2,20 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PaymentRecord, SummaryStats } from './types.ts';
 import { INITIAL_DATA } from './data.ts';
-import { formatCurrency, formatDate } from './utils.ts';
+import { formatCurrency } from './utils.ts';
 import PaymentTable from './components/PaymentTable.tsx';
 import PaymentForm from './components/PaymentForm.tsx';
 import Stats from './components/Stats.tsx';
 import Charts from './components/Charts.tsx';
-import { PlusCircle, Search, Home, FileText, BarChart3 } from 'lucide-react';
+import Maintenance from './components/Maintenance.tsx';
+import { PlusCircle, Search, Home, FileText, BarChart3, Settings } from 'lucide-react';
 
 const App: React.FC = () => {
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState<PaymentRecord | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'table' | 'charts'>('table');
+  const [activeTab, setActiveTab] = useState<'table' | 'charts' | 'maintenance'>('table');
 
   useEffect(() => {
     try {
@@ -29,7 +30,11 @@ const App: React.FC = () => {
     } catch (e) {
       console.error("Failed to load data from storage", e);
     }
-    setPayments([...INITIAL_DATA].sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()));
+    // Default data if nothing in storage
+    const sortedInitial = [...INITIAL_DATA].sort((a, b) => 
+      new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime()
+    );
+    setPayments(sortedInitial);
   }, []);
 
   useEffect(() => {
@@ -115,6 +120,13 @@ const App: React.FC = () => {
             <BarChart3 size={20} />
             Analytics
           </button>
+          <button 
+            onClick={() => setActiveTab('maintenance')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${activeTab === 'maintenance' ? 'bg-blue-50 text-blue-700 font-semibold shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+          >
+            <Settings size={20} />
+            Data Management
+          </button>
         </nav>
         <div className="p-4 mt-auto">
           <button 
@@ -146,21 +158,12 @@ const App: React.FC = () => {
         <Stats stats={stats} />
 
         <div className="flex md:hidden bg-slate-200 p-1 rounded-xl mb-6">
-          <button 
-            onClick={() => setActiveTab('table')}
-            className={`flex-1 py-2 px-4 rounded-lg font-bold transition-all ${activeTab === 'table' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'}`}
-          >
-            Records
-          </button>
-          <button 
-            onClick={() => setActiveTab('charts')}
-            className={`flex-1 py-2 px-4 rounded-lg font-bold transition-all ${activeTab === 'charts' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'}`}
-          >
-            Charts
-          </button>
+          <button onClick={() => setActiveTab('table')} className={`flex-1 py-2 px-4 rounded-lg font-bold transition-all ${activeTab === 'table' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'}`}>Records</button>
+          <button onClick={() => setActiveTab('charts')} className={`flex-1 py-2 px-4 rounded-lg font-bold transition-all ${activeTab === 'charts' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'}`}>Charts</button>
+          <button onClick={() => setActiveTab('maintenance')} className={`flex-1 py-2 px-4 rounded-lg font-bold transition-all ${activeTab === 'maintenance' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-600'}`}>Data</button>
         </div>
 
-        {activeTab === 'table' ? (
+        {activeTab === 'table' && (
           <section className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <h3 className="text-2xl font-bold text-slate-800">Recent Payments</h3>
@@ -175,19 +178,23 @@ const App: React.FC = () => {
                 />
               </div>
             </div>
-            
             <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-              <PaymentTable 
-                payments={filteredPayments} 
-                onEdit={handleEdit} 
-                onDelete={handleDelete} 
-              />
+              <PaymentTable payments={filteredPayments} onEdit={handleEdit} onDelete={handleDelete} />
             </div>
           </section>
-        ) : (
+        )}
+
+        {activeTab === 'charts' && (
           <section className="space-y-8">
             <h3 className="text-2xl font-bold text-slate-800">Financial Trends</h3>
             <Charts payments={payments} />
+          </section>
+        )}
+
+        {activeTab === 'maintenance' && (
+          <section className="space-y-8">
+            <h3 className="text-2xl font-bold text-slate-800">Data Management</h3>
+            <Maintenance payments={payments} onRestore={setPayments} />
           </section>
         )}
       </main>
