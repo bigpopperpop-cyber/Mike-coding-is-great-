@@ -24,7 +24,8 @@ import {
   Hash,
   Scale,
   FileText,
-  MinusCircle
+  MinusCircle,
+  CalendarCheck
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -43,6 +44,7 @@ import {
 interface PaymentRecord {
   id: string;
   date: string;
+  appliedTo?: string; // Format: YYYY-MM
   totalPaid: number;
   principalPart: number;
   interestPart: number;
@@ -66,6 +68,13 @@ const formatUSD = (val: number) => {
     style: 'currency',
     currency: 'USD',
   }).format(val);
+};
+
+const formatAppliedTo = (val: string | undefined) => {
+  if (!val) return '-';
+  const [year, month] = val.split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1);
+  return date.toLocaleDateString('en-US', { month: '2-digit', year: '2-digit' });
 };
 
 const downloadFile = (content: string, fileName: string, contentType: string) => {
@@ -111,6 +120,7 @@ const App: React.FC = () => {
   // Entry Form State
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
+    appliedTo: new Date().toISOString().slice(0, 7), // YYYY-MM
     totalPaid: 0,
     taxPart: 0,
     insurancePart: 0,
@@ -122,16 +132,16 @@ const App: React.FC = () => {
 
   // Load Data
   useEffect(() => {
-    const saved = localStorage.getItem('house_db_v3');
-    const savedCfg = localStorage.getItem('house_cfg_v3');
+    const saved = localStorage.getItem('house_db_v4');
+    const savedCfg = localStorage.getItem('house_cfg_v4');
     if (saved) setPayments(JSON.parse(saved));
     if (savedCfg) setConfig(JSON.parse(savedCfg));
   }, []);
 
   // Save Data
   useEffect(() => {
-    localStorage.setItem('house_db_v3', JSON.stringify(payments));
-    localStorage.setItem('house_cfg_v3', JSON.stringify(config));
+    localStorage.setItem('house_db_v4', JSON.stringify(payments));
+    localStorage.setItem('house_cfg_v4', JSON.stringify(config));
   }, [payments, config]);
 
   const stats = useMemo(() => {
@@ -212,14 +222,11 @@ const App: React.FC = () => {
     
     if (entryMode === 'taxBill') {
         payload.isTaxBill = true;
-        // Total paid for a tax bill is usually zero or the bill itself depending on preference.
-        // We'll set totalPaid to 0 as it's a disbursement from existing funds, not new money in.
         payload.totalPaid = 0; 
-        payload.taxPart = -Math.abs(formData.taxPart); // Force negative for deduction
+        payload.taxPart = -Math.abs(formData.taxPart); 
         payload.principalPart = 0;
         payload.interestPart = 0;
         payload.insurancePart = 0;
-        // Remaining balance stays the same as the last mortgage payment
         const sorted = [...payments].filter(p => !p.isTaxBill).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         payload.remainingBalance = sorted.length > 0 ? sorted[sorted.length-1].remainingBalance : config.initialBalance;
     }
@@ -247,6 +254,7 @@ const App: React.FC = () => {
     setEntryMode('mortgage');
     setFormData({
       date: new Date().toISOString().split('T')[0],
+      appliedTo: new Date().toISOString().slice(0, 7),
       totalPaid: 0,
       taxPart: 0,
       insurancePart: 0,
@@ -262,8 +270,9 @@ const App: React.FC = () => {
     setEntryMode(record.isTaxBill ? 'taxBill' : 'mortgage');
     setFormData({
       date: record.date,
+      appliedTo: record.appliedTo || new Date().toISOString().slice(0, 7),
       totalPaid: record.totalPaid,
-      taxPart: Math.abs(record.taxPart), // Form always shows positive
+      taxPart: Math.abs(record.taxPart),
       insurancePart: record.insurancePart,
       principalPart: record.principalPart,
       interestPart: record.interestPart,
@@ -472,14 +481,27 @@ const App: React.FC = () => {
                 {entryMode === 'mortgage' ? (
                   <>
                     <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 space-y-8">
-                      <div className="space-y-3">
-                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
-                        <input 
-                          type="date" 
-                          className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                          value={formData.date}
-                          onChange={e => setFormData({...formData, date: e.target.value})}
-                        />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                            <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
+                            <input 
+                            type="date" 
+                            className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl text-lg font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                            value={formData.date}
+                            onChange={e => setFormData({...formData, date: e.target.value})}
+                            />
+                        </div>
+                        <div className="space-y-3">
+                            <label className="text-xs font-black text-blue-600 uppercase tracking-widest ml-1 flex items-center gap-1">
+                                <CalendarCheck size={12} /> Applied to MM/YY
+                            </label>
+                            <input 
+                            type="month" 
+                            className="w-full px-6 py-4 bg-blue-50/30 border border-blue-200 rounded-2xl text-lg font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                            value={formData.appliedTo}
+                            onChange={e => setFormData({...formData, appliedTo: e.target.value})}
+                            />
+                        </div>
                       </div>
 
                       <div className="space-y-3">
@@ -637,12 +659,13 @@ const App: React.FC = () => {
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
                       <tr>
-                        <th className="px-6 py-6">Date</th>
+                        <th className="px-6 py-6">Paid Date</th>
+                        <th className="px-6 py-6">Applied To</th>
                         <th className="px-6 py-6">Check #</th>
-                        <th className="px-6 py-6">Paid</th>
+                        <th className="px-6 py-6">Total Paid</th>
                         <th className="px-6 py-6">Principal</th>
                         <th className="px-6 py-6">Interest</th>
-                        <th className="px-6 py-6">Tax Pot Activity</th>
+                        <th className="px-6 py-6">Tax Activity</th>
                         <th className="px-6 py-6">Balance</th>
                         <th className="px-6 py-6 text-center">Actions</th>
                       </tr>
@@ -655,6 +678,9 @@ const App: React.FC = () => {
                                 {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                                 {p.isTaxBill && <span className="text-[10px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-black mt-1 w-fit">TAX BILL</span>}
                             </div>
+                          </td>
+                          <td className="px-6 py-6 font-black text-slate-600 text-sm">
+                            {formatAppliedTo(p.appliedTo)}
                           </td>
                           <td className="px-6 py-6 font-bold text-slate-400 text-sm">
                             {p.checkNumber ? <span className="bg-slate-100 px-3 py-1 rounded-lg text-slate-600 font-mono">{p.checkNumber}</span> : '-'}
@@ -697,7 +723,7 @@ const App: React.FC = () => {
                       ))}
                       {payments.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="px-10 py-20 text-center text-slate-400 font-bold italic">
+                          <td colSpan={9} className="px-10 py-20 text-center text-slate-400 font-bold italic">
                             No records found. Add your first payment or tax bill to start tracking.
                           </td>
                         </tr>
