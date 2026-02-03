@@ -22,7 +22,9 @@ import {
   Receipt,
   Pencil,
   Hash,
-  Scale
+  Scale,
+  FileText,
+  MinusCircle
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -48,6 +50,7 @@ interface PaymentRecord {
   insurancePart: number;
   remainingBalance: number;
   checkNumber?: string;
+  isTaxBill?: boolean;
 }
 
 interface MortgageConfig {
@@ -96,6 +99,8 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dash' | 'entry' | 'history' | 'settings'>('dash');
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [entryMode, setEntryMode] = useState<'mortgage' | 'taxBill'>('mortgage');
+  
   const [config, setConfig] = useState<MortgageConfig>({
     nickname: "Family Home",
     initialBalance: 230000,
@@ -131,18 +136,20 @@ const App: React.FC = () => {
 
   const stats = useMemo(() => {
     const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const currentBalance = sorted.length > 0 ? sorted[sorted.length - 1].remainingBalance : config.initialBalance;
+    const lastValidBalanceRecord = [...sorted].reverse().find(p => !p.isTaxBill);
+    const currentBalance = lastValidBalanceRecord ? lastValidBalanceRecord.remainingBalance : config.initialBalance;
+    
     const totalPaid = payments.reduce((sum, p) => sum + p.totalPaid, 0);
     const totalInterest = payments.reduce((sum, p) => sum + p.interestPart, 0);
-    const totalTaxContributions = payments.reduce((sum, p) => sum + p.taxPart, 0);
+    const totalTaxNet = payments.reduce((sum, p) => sum + p.taxPart, 0);
     
-    // YTD Taxes
+    // YTD Taxes Collected (Only regular payments)
     const currentYear = new Date().getFullYear();
     const ytdTax = payments
-      .filter(p => new Date(p.date).getFullYear() === currentYear)
+      .filter(p => new Date(p.date).getFullYear() === currentYear && !p.isTaxBill)
       .reduce((sum, p) => sum + p.taxPart, 0);
 
-    const currentTaxFund = config.initialTaxBalance + totalTaxContributions;
+    const currentTaxFund = config.initialTaxBalance + totalTaxNet;
     const progress = Math.min(100, Math.max(0, ((config.initialBalance - currentBalance) / config.initialBalance) * 100));
     
     return { currentBalance, totalPaid, totalInterest, progress, ytdTax, currentTaxFund };
@@ -161,8 +168,10 @@ const App: React.FC = () => {
   }, [payments, config.initialTaxBalance]);
 
   const handleMagicSplit = () => {
+    if (entryMode === 'taxBill') return;
+    
     let targetBalance = config.initialBalance;
-    const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...payments].filter(p => !p.isTaxBill).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     
     if (editingId) {
         const idx = sorted.findIndex(p => p.id === editingId);
@@ -189,20 +198,41 @@ const App: React.FC = () => {
   };
 
   const savePayment = () => {
-    if (!formData.totalPaid || formData.remainingBalance < 0) {
+    if (entryMode === 'mortgage' && (!formData.totalPaid || formData.remainingBalance < 0)) {
       alert("Please ensure the payment details are correct.");
       return;
+    }
+    
+    if (entryMode === 'taxBill' && !formData.taxPart) {
+        alert("Please enter the tax bill amount.");
+        return;
+    }
+
+    const payload: Partial<PaymentRecord> = { ...formData };
+    
+    if (entryMode === 'taxBill') {
+        payload.isTaxBill = true;
+        // Total paid for a tax bill is usually zero or the bill itself depending on preference.
+        // We'll set totalPaid to 0 as it's a disbursement from existing funds, not new money in.
+        payload.totalPaid = 0; 
+        payload.taxPart = -Math.abs(formData.taxPart); // Force negative for deduction
+        payload.principalPart = 0;
+        payload.interestPart = 0;
+        payload.insurancePart = 0;
+        // Remaining balance stays the same as the last mortgage payment
+        const sorted = [...payments].filter(p => !p.isTaxBill).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        payload.remainingBalance = sorted.length > 0 ? sorted[sorted.length-1].remainingBalance : config.initialBalance;
     }
 
     if (editingId) {
       const updatedPayments = payments.map(p => 
-        p.id === editingId ? { ...formData, id: editingId } : p
+        p.id === editingId ? { ...(payload as PaymentRecord), id: editingId } : p
       );
       setPayments(updatedPayments.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
       setEditingId(null);
     } else {
       const newRecord: PaymentRecord = {
-        ...formData,
+        ...(payload as PaymentRecord),
         id: crypto.randomUUID()
       };
       setPayments([...payments, newRecord].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
@@ -214,6 +244,7 @@ const App: React.FC = () => {
 
   const resetForm = () => {
     setEditingId(null);
+    setEntryMode('mortgage');
     setFormData({
       date: new Date().toISOString().split('T')[0],
       totalPaid: 0,
@@ -228,10 +259,11 @@ const App: React.FC = () => {
 
   const startEditing = (record: PaymentRecord) => {
     setEditingId(record.id);
+    setEntryMode(record.isTaxBill ? 'taxBill' : 'mortgage');
     setFormData({
       date: record.date,
       totalPaid: record.totalPaid,
-      taxPart: record.taxPart,
+      taxPart: Math.abs(record.taxPart), // Form always shows positive
       insurancePart: record.insurancePart,
       principalPart: record.principalPart,
       interestPart: record.interestPart,
@@ -242,7 +274,7 @@ const App: React.FC = () => {
   };
 
   const deletePayment = (id: string) => {
-    if (confirm("Permanently delete this payment record?")) {
+    if (confirm("Permanently delete this record?")) {
       setPayments(payments.filter(p => p.id !== id));
     }
   };
@@ -263,13 +295,13 @@ const App: React.FC = () => {
   };
 
   const chartData = useMemo(() => {
-    return payments.slice(-12).map(p => ({
+    return paymentsWithCumulative.slice(-12).map(p => ({
       name: new Date(p.date).toLocaleDateString('en-US', { month: 'short' }),
       balance: p.remainingBalance,
-      tax: p.taxPart,
+      taxFund: p.currentTaxFund,
       interest: p.interestPart
     }));
-  }, [payments]);
+  }, [paymentsWithCumulative]);
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-[#F8FAFC]">
@@ -378,18 +410,22 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100">
-                  <h3 className="text-xl font-black mb-8">Tax & Interest Breakdown</h3>
+                  <h3 className="text-xl font-black mb-8">Tax Fund Growth</h3>
                   <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData}>
+                      <AreaChart data={chartData}>
+                        <defs>
+                          <linearGradient id="colorTax" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.1}/>
+                            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                         <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
                         <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
                         <Tooltip />
-                        <Legend />
-                        <Bar dataKey="interest" name="Interest" fill="#f43f5e" radius={[4,4,0,0]} />
-                        <Bar dataKey="tax" name="Taxes" fill="#f59e0b" radius={[4,4,0,0]} />
-                      </BarChart>
+                        <Area type="monotone" dataKey="taxFund" name="Fund Balance" stroke="#f59e0b" strokeWidth={4} fillOpacity={1} fill="url(#colorTax)" />
+                      </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
@@ -399,17 +435,33 @@ const App: React.FC = () => {
 
           {activeTab === 'entry' && (
             <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
-              <header className="mb-10 flex justify-between items-end">
+              <header className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
                 <div>
-                    <h2 className="text-4xl font-black text-slate-900">{editingId ? 'Edit Payment Record' : 'New Payment Entry'}</h2>
+                    <h2 className="text-4xl font-black text-slate-900">{editingId ? 'Edit Entry' : 'New Entry'}</h2>
                     <p className="text-slate-500 text-lg font-medium mt-1">
-                        {editingId ? 'Updating an existing payment entry.' : 'Use your bank statement to fill in the boxes below.'}
+                        Select whether this is a normal house payment or a tax bill.
                     </p>
                 </div>
+                
+                <div className="flex bg-slate-200 p-1 rounded-2xl">
+                    <button 
+                        onClick={() => setEntryMode('mortgage')}
+                        className={`px-8 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${entryMode === 'mortgage' ? 'bg-white text-blue-600 shadow-md' : 'text-slate-500'}`}
+                    >
+                        <Home size={18} /> House Payment
+                    </button>
+                    <button 
+                        onClick={() => setEntryMode('taxBill')}
+                        className={`px-8 py-3 rounded-xl font-black text-sm transition-all flex items-center gap-2 ${entryMode === 'taxBill' ? 'bg-white text-orange-600 shadow-md' : 'text-slate-500'}`}
+                    >
+                        <FileText size={18} /> Pay Property Tax Bill
+                    </button>
+                </div>
+
                 {editingId && (
                     <button 
                         onClick={() => { resetForm(); setActiveTab('history'); }}
-                        className="mb-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center gap-2"
+                        className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center gap-2"
                     >
                         <X size={20} /> Cancel Edit
                     </button>
@@ -417,83 +469,125 @@ const App: React.FC = () => {
               </header>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 space-y-8">
-                  <div className="space-y-3">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
-                    <input 
-                      type="date" 
-                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                      value={formData.date}
-                      onChange={e => setFormData({...formData, date: e.target.value})}
-                    />
-                  </div>
+                {entryMode === 'mortgage' ? (
+                  <>
+                    <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 space-y-8">
+                      <div className="space-y-3">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
+                        <input 
+                          type="date" 
+                          className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                          value={formData.date}
+                          onChange={e => setFormData({...formData, date: e.target.value})}
+                        />
+                      </div>
 
-                  <div className="space-y-3">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Total Paid This Month ($)</label>
-                    <input 
-                      type="number" 
-                      placeholder="0.00"
-                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-2xl font-black focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                      value={formData.totalPaid || ''}
-                      onChange={e => setFormData({...formData, totalPaid: parseFloat(e.target.value) || 0})}
-                    />
-                  </div>
+                      <div className="space-y-3">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Total Paid This Month ($)</label>
+                        <input 
+                          type="number" 
+                          placeholder="0.00"
+                          className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-2xl font-black focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                          value={formData.totalPaid || ''}
+                          onChange={e => setFormData({...formData, totalPaid: parseFloat(e.target.value) || 0})}
+                        />
+                      </div>
 
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3 p-4 bg-amber-50 rounded-2xl border border-amber-100">
-                      <label className="text-xs font-black text-amber-600 uppercase tracking-widest ml-1">Taxes ($)</label>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-3 p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                          <label className="text-xs font-black text-amber-600 uppercase tracking-widest ml-1">Taxes ($)</label>
+                          <input 
+                            type="number" 
+                            placeholder="0.00"
+                            className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl font-bold text-lg focus:ring-4 focus:ring-amber-100 outline-none transition-all"
+                            value={formData.taxPart || ''}
+                            onChange={e => setFormData({...formData, taxPart: parseFloat(e.target.value) || 0})}
+                          />
+                        </div>
+                        <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                          <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Insurance ($)</label>
+                          <input 
+                            type="number" 
+                            placeholder="0.00"
+                            className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                            value={formData.insurancePart || ''}
+                            onChange={e => setFormData({...formData, insurancePart: parseFloat(e.target.value) || 0})}
+                          />
+                        </div>
+                      </div>
+
+                      <button 
+                        onClick={handleMagicSplit}
+                        className="w-full py-6 bg-blue-50 text-blue-700 rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-2 border-dashed border-blue-200 hover:bg-blue-100 transition-all active:scale-[0.98]"
+                      >
+                        <Calculator size={24} /> Magic Calculate Split
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 space-y-8 animate-in fade-in slide-in-from-left-4">
+                    <div className="flex items-center gap-3 p-4 bg-orange-50 text-orange-700 rounded-2xl border border-orange-100">
+                        <AlertCircle size={20} />
+                        <p className="text-sm font-bold">This will deduct funds from your Tax Pot balance.</p>
+                    </div>
+                    
+                    <div className="space-y-3">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Tax Bill Date</label>
+                      <input 
+                        type="date" 
+                        className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-orange-100 outline-none transition-all"
+                        value={formData.date}
+                        onChange={e => setFormData({...formData, date: e.target.value})}
+                      />
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-xs font-black text-orange-600 uppercase tracking-widest ml-1">Tax Bill Amount Paid ($)</label>
                       <input 
                         type="number" 
                         placeholder="0.00"
-                        className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl font-bold text-lg focus:ring-4 focus:ring-amber-100 outline-none transition-all"
+                        className="w-full px-6 py-5 bg-orange-50/30 border border-orange-200 rounded-2xl text-3xl font-black focus:ring-4 focus:ring-orange-100 outline-none transition-all"
                         value={formData.taxPart || ''}
                         onChange={e => setFormData({...formData, taxPart: parseFloat(e.target.value) || 0})}
                       />
                     </div>
-                    <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Insurance ($)</label>
-                      <input 
-                        type="number" 
-                        placeholder="0.00"
-                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                        value={formData.insurancePart || ''}
-                        onChange={e => setFormData({...formData, insurancePart: parseFloat(e.target.value) || 0})}
-                      />
-                    </div>
                   </div>
-
-                  <button 
-                    onClick={handleMagicSplit}
-                    className="w-full py-6 bg-blue-50 text-blue-700 rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-2 border-dashed border-blue-200 hover:bg-blue-100 transition-all active:scale-[0.98]"
-                  >
-                    <Calculator size={24} /> Magic Calculate Split
-                  </button>
-                </div>
+                )}
 
                 <div className="space-y-8">
-                  <div className="bg-slate-900 text-white p-10 rounded-[3rem] shadow-xl space-y-6">
+                  <div className={`p-10 rounded-[3rem] shadow-xl space-y-6 ${entryMode === 'mortgage' ? 'bg-slate-900 text-white' : 'bg-orange-600 text-white'}`}>
                     <div className="flex justify-between items-center">
-                      <h3 className="text-xl font-black text-blue-400">Transaction Summary</h3>
-                      <ShieldCheck size={32} className="text-emerald-400" />
+                      <h3 className="text-xl font-black">{entryMode === 'mortgage' ? 'Transaction Summary' : 'Tax Bill Summary'}</h3>
+                      {entryMode === 'mortgage' ? <ShieldCheck size={32} className="text-emerald-400" /> : <MinusCircle size={32} className="text-white" />}
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-slate-800 p-4 rounded-2xl">
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">To Principal</p>
-                        <p className="text-xl font-black text-emerald-400">{formatUSD(formData.principalPart)}</p>
-                      </div>
-                      <div className="bg-slate-800 p-4 rounded-2xl">
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">To Tax Fund</p>
-                        <p className="text-xl font-black text-amber-400">{formatUSD(formData.taxPart)}</p>
-                      </div>
-                    </div>
-                    <div className="pt-6 border-t border-slate-800 flex justify-between items-center">
+                    
+                    {entryMode === 'mortgage' ? (
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-slate-800 p-4 rounded-2xl">
+                                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">To Principal</p>
+                                <p className="text-xl font-black text-emerald-400">{formatUSD(formData.principalPart)}</p>
+                            </div>
+                            <div className="bg-slate-800 p-4 rounded-2xl">
+                                <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">Increase Tax Fund</p>
+                                <p className="text-xl font-black text-amber-400">{formatUSD(formData.taxPart)}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-white/10 p-6 rounded-2xl border border-white/20">
+                            <p className="text-orange-200 text-[10px] font-black uppercase tracking-widest mb-1">Decrease Tax Fund By</p>
+                            <p className="text-4xl font-black">{formatUSD(formData.taxPart)}</p>
+                            <p className="mt-4 text-orange-100 text-xs font-medium">Your tax pot will decrease after saving this record.</p>
+                        </div>
+                    )}
+
+                    <div className="pt-6 border-t border-white/10 flex justify-between items-center">
                       <div>
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">New Home Balance</p>
-                        <p className="text-2xl font-black">{formatUSD(formData.remainingBalance)}</p>
+                        <p className="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-1">Estimated Fund After</p>
+                        <p className="text-2xl font-black">{formatUSD(stats.currentTaxFund + (entryMode === 'mortgage' ? formData.taxPart : -formData.taxPart))}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">Lifetime Invested</p>
-                        <p className="text-2xl font-black">{formatUSD(stats.totalPaid + (editingId ? 0 : formData.totalPaid))}</p>
+                        <p className="text-slate-300 text-[10px] font-black uppercase tracking-widest mb-1">New Balance</p>
+                        <p className="text-2xl font-black">{formatUSD(formData.remainingBalance)}</p>
                       </div>
                     </div>
                   </div>
@@ -513,7 +607,7 @@ const App: React.FC = () => {
                     </div>
                     <button 
                       onClick={savePayment}
-                      className="w-full py-6 bg-blue-600 text-white rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-[0.98]"
+                      className={`w-full py-6 text-white rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl transition-all active:scale-[0.98] ${entryMode === 'mortgage' ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-600/20' : 'bg-orange-600 hover:bg-orange-700 shadow-orange-600/20'}`}
                     >
                       <Save size={24} /> {editingId ? 'Update Record' : 'Save to Database'}
                     </button>
@@ -528,7 +622,7 @@ const App: React.FC = () => {
               <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                   <h2 className="text-4xl font-black text-slate-900">Payment Ledger</h2>
-                  <p className="text-slate-500 text-lg font-medium mt-1">Complete history of payments and tax collections.</p>
+                  <p className="text-slate-500 text-lg font-medium mt-1">Complete history of payments and tax bill disbursements.</p>
                 </div>
                 <button 
                    onClick={() => downloadFile(JSON.stringify(payments), 'mortgage_export.json', 'application/json')}
@@ -548,27 +642,38 @@ const App: React.FC = () => {
                         <th className="px-6 py-6">Paid</th>
                         <th className="px-6 py-6">Principal</th>
                         <th className="px-6 py-6">Interest</th>
-                        <th className="px-6 py-6">Tax Fund</th>
-                        <th className="px-6 py-6">New Balance</th>
+                        <th className="px-6 py-6">Tax Pot Activity</th>
+                        <th className="px-6 py-6">Balance</th>
                         <th className="px-6 py-6 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {[...paymentsWithCumulative].reverse().map(p => (
-                        <tr key={p.id} className="hover:bg-blue-50/30 transition-colors group">
+                        <tr key={p.id} className={`hover:bg-blue-50/30 transition-colors group ${p.isTaxBill ? 'bg-orange-50/20' : ''}`}>
                           <td className="px-6 py-6 font-extrabold text-slate-900 whitespace-nowrap text-sm">
-                            {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            <div className="flex flex-col">
+                                {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                {p.isTaxBill && <span className="text-[10px] bg-orange-600 text-white px-2 py-0.5 rounded-full font-black mt-1 w-fit">TAX BILL</span>}
+                            </div>
                           </td>
                           <td className="px-6 py-6 font-bold text-slate-400 text-sm">
                             {p.checkNumber ? <span className="bg-slate-100 px-3 py-1 rounded-lg text-slate-600 font-mono">{p.checkNumber}</span> : '-'}
                           </td>
-                          <td className="px-6 py-6 font-black text-blue-600 text-sm">{formatUSD(p.totalPaid)}</td>
-                          <td className="px-6 py-6 text-emerald-600 font-bold text-sm">{formatUSD(p.principalPart)}</td>
-                          <td className="px-6 py-6 text-rose-500 font-medium text-sm">{formatUSD(p.interestPart)}</td>
+                          <td className="px-6 py-6 font-black text-blue-600 text-sm">
+                             {p.totalPaid > 0 ? formatUSD(p.totalPaid) : '-'}
+                          </td>
+                          <td className="px-6 py-6 text-emerald-600 font-bold text-sm">
+                             {p.principalPart > 0 ? formatUSD(p.principalPart) : '-'}
+                          </td>
+                          <td className="px-6 py-6 text-rose-500 font-medium text-sm">
+                             {p.interestPart > 0 ? formatUSD(p.interestPart) : '-'}
+                          </td>
                           <td className="px-6 py-6">
                             <div className="flex flex-col">
-                                <span className="text-amber-600 font-black text-sm">{formatUSD(p.taxPart)}</span>
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Pot: {formatUSD(p.currentTaxFund)}</span>
+                                <span className={`font-black text-sm ${p.isTaxBill ? 'text-orange-600' : 'text-amber-600'}`}>
+                                    {p.isTaxBill ? `- ${formatUSD(Math.abs(p.taxPart))}` : `+ ${formatUSD(p.taxPart)}`}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">New Pot: {formatUSD(p.currentTaxFund)}</span>
                             </div>
                           </td>
                           <td className="px-6 py-6 font-bold text-slate-500 italic text-sm">{formatUSD(p.remainingBalance)}</td>
@@ -593,7 +698,7 @@ const App: React.FC = () => {
                       {payments.length === 0 && (
                         <tr>
                           <td colSpan={8} className="px-10 py-20 text-center text-slate-400 font-bold italic">
-                            No payment records found. Add your first payment to get started.
+                            No records found. Add your first payment or tax bill to start tracking.
                           </td>
                         </tr>
                       )}
