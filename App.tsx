@@ -1,251 +1,454 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
+  Home, 
   PlusCircle, 
   History, 
-  LayoutDashboard, 
   Settings, 
-  Home, 
-  Search,
-  LineChart
+  TrendingDown, 
+  Wallet, 
+  Calendar,
+  FileDown,
+  Trash2,
+  AlertCircle,
+  Save,
+  ChevronRight,
+  Calculator
 } from 'lucide-react';
-import { PaymentRecord, SummaryStats, AppSettings } from './types.ts';
-import { DATA_KEY, SETTINGS_KEY } from './data.ts';
+import { PaymentRecord, MortgageConfig, SummaryStats } from './types.ts';
+import { formatUSD, calculateSuggestedSplit, downloadCSV } from './utils.ts';
 
-// Component Imports
-import Stats from './components/Stats.tsx';
-import PaymentTable from './components/PaymentTable.tsx';
-import PaymentForm from './components/PaymentForm.tsx';
-import Charts from './components/Charts.tsx';
-import Maintenance from './components/Maintenance.tsx';
-
-// Added default export and completed the component definition
 const App: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'dash' | 'entry' | 'history' | 'settings'>('dash');
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
-  const [settings, setSettings] = useState<AppSettings>({ 
-    initialBalance: 230000, 
-    houseNickName: "Family Home" 
+  const [config, setConfig] = useState<MortgageConfig>({
+    nickname: "Family Home",
+    initialBalance: 250000,
+    annualRate: 3.5,
+    startDate: new Date().toISOString().split('T')[0]
   });
-  const [activeTab, setActiveTab] = useState<'dash' | 'history' | 'charts' | 'admin'>('dash');
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingPayment, setEditingPayment] = useState<PaymentRecord | undefined>(undefined);
-  const [searchTerm, setSearchTerm] = useState('');
 
-  // Persistence
+  // Load Data
   useEffect(() => {
-    const savedData = localStorage.getItem(DATA_KEY);
-    const savedSettings = localStorage.getItem(SETTINGS_KEY);
-    if (savedData) setPayments(JSON.parse(savedData));
-    if (savedSettings) setSettings(JSON.parse(savedSettings));
+    const saved = localStorage.getItem('mortgage_db');
+    const savedConfig = localStorage.getItem('mortgage_cfg');
+    if (saved) setPayments(JSON.parse(saved));
+    if (savedConfig) setConfig(JSON.parse(savedConfig));
   }, []);
 
+  // Save Data
   useEffect(() => {
-    localStorage.setItem(DATA_KEY, JSON.stringify(payments));
-  }, [payments]);
+    localStorage.setItem('mortgage_db', JSON.stringify(payments));
+    localStorage.setItem('mortgage_cfg', JSON.stringify(config));
+  }, [payments, config]);
 
-  useEffect(() => {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [settings]);
-
-  // Derived Stats
   const stats: SummaryStats = useMemo(() => {
-    const sorted = [...payments].sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime());
-    const latestBalance = sorted.length > 0 ? sorted[sorted.length - 1].principalBalance : settings.initialBalance;
-    
-    return payments.reduce((acc, p) => {
-      acc.totalPrincipalPaid += p.principalPaid;
-      acc.totalInterestPaid += Math.abs(p.interestPaid);
-      acc.totalTaxesPaid += p.taxesPaid;
-      acc.totalInsurancePaid += p.insurancePaid;
-      return acc;
-    }, {
-      remainingBalance: latestBalance,
-      totalPrincipalPaid: 0,
-      totalInterestPaid: 0,
-      totalTaxesPaid: 0,
-      totalInsurancePaid: 0,
-      originalBalance: settings.initialBalance
-    });
-  }, [payments, settings]);
+    const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const currentBalance = sorted.length > 0 ? sorted[sorted.length - 1].remainingBalance : config.initialBalance;
+    const totalPaidToDate = payments.reduce((sum, p) => sum + p.totalPaid, 0);
+    const totalInterestPaid = payments.reduce((sum, p) => sum + p.interestPart, 0);
+    const totalPrincipalPaid = payments.reduce((sum, p) => sum + p.principalPart, 0);
+    const totalTaxesPaid = payments.reduce((sum, p) => sum + p.taxPart, 0);
+    const totalInsurancePaid = payments.reduce((sum, p) => sum + p.insurancePart, 0);
+    const totalEquityGained = config.initialBalance - currentBalance;
+    const percentComplete = (totalEquityGained / config.initialBalance) * 100;
 
-  const filteredPayments = useMemo(() => {
-    return payments.filter(p => 
-      p.paymentDate.includes(searchTerm) || 
-      (p.checkNumber && p.checkNumber.includes(searchTerm)) ||
-      (p.note || '').toLowerCase().includes(searchTerm.toLowerCase())
-    ).sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
-  }, [payments, searchTerm]);
+    return {
+      currentBalance,
+      totalPaidToDate,
+      totalInterestPaid,
+      totalEquityGained,
+      percentComplete,
+      totalPrincipalPaid,
+      totalTaxesPaid,
+      totalInsurancePaid
+    };
+  }, [payments, config]);
 
-  const handleSavePayment = (data: PaymentRecord) => {
-    if (editingPayment) {
-      setPayments(prev => prev.map(p => p.id === editingPayment.id ? data : p));
-    } else {
-      setPayments(prev => [...prev, data]);
-    }
-    setIsFormOpen(false);
-    setEditingPayment(undefined);
+  const handleAddPayment = (p: Omit<PaymentRecord, 'id' | 'lastModified'>) => {
+    const newPayment: PaymentRecord = {
+      ...p,
+      id: crypto.randomUUID(),
+      lastModified: Date.now()
+    };
+    setPayments(prev => [...prev, newPayment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+    setActiveTab('dash');
   };
 
-  const handleDeletePayment = (id: string) => {
-    if (confirm("Permanently delete this payment record?")) {
+  const deletePayment = (id: string) => {
+    if (confirm("Are you sure you want to delete this payment?")) {
       setPayments(prev => prev.filter(p => p.id !== id));
     }
   };
 
-  const handleEditPayment = (payment: PaymentRecord) => {
-    setEditingPayment(payment);
-    setIsFormOpen(true);
-  };
-
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-slate-50 text-slate-900">
-      {/* Sidebar */}
-      <aside className="w-full md:w-72 bg-white border-r border-slate-200 p-6 flex flex-col">
-        <div className="flex items-center gap-3 mb-10 px-2">
-          <div className="bg-blue-600 p-2.5 rounded-2xl text-white shadow-lg shadow-blue-200">
-            <Home size={24} />
+    <div className="min-h-screen flex flex-col lg:flex-row">
+      {/* Sidebar Navigation */}
+      <nav className="w-full lg:w-72 bg-slate-900 text-white p-6 flex flex-col">
+        <div className="flex items-center gap-3 mb-10">
+          <div className="bg-blue-600 p-2 rounded-xl">
+            <Home size={28} />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tight">{settings.houseNickName}</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mortgage Ledger</p>
+            <h1 className="font-bold text-xl leading-tight">{config.nickname}</h1>
+            <p className="text-slate-400 text-xs font-semibold tracking-widest uppercase">Tracker</p>
           </div>
         </div>
 
-        <nav className="space-y-2 flex-1">
-          <button 
-            onClick={() => setActiveTab('dash')}
-            className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-all ${activeTab === 'dash' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
-          >
-            <LayoutDashboard size={22} />
-            Dashboard
-          </button>
-          <button 
-            onClick={() => setActiveTab('history')}
-            className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-all ${activeTab === 'history' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
-          >
-            <History size={22} />
-            Payment History
-          </button>
-          <button 
-            onClick={() => setActiveTab('charts')}
-            className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-all ${activeTab === 'charts' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
-          >
-            <LineChart size={22} />
-            Analytics
-          </button>
-          <button 
-            onClick={() => setActiveTab('admin')}
-            className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-all ${activeTab === 'admin' ? 'bg-blue-50 text-blue-600' : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
-          >
-            <Settings size={22} />
-            Settings & Data
-          </button>
-        </nav>
+        <div className="flex-1 space-y-2">
+          {[
+            { id: 'dash', label: 'Overview', icon: Home },
+            { id: 'entry', label: 'New Payment', icon: PlusCircle },
+            { id: 'history', label: 'History', icon: History },
+            { id: 'settings', label: 'Settings', icon: Settings },
+          ].map(item => (
+            <button
+              key={item.id}
+              onClick={() => setActiveTab(item.id as any)}
+              className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-all ${
+                activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              }`}
+            >
+              <item.icon size={22} />
+              {item.label}
+            </button>
+          ))}
+        </div>
 
-        <button 
-          onClick={() => { setEditingPayment(undefined); setIsFormOpen(true); }}
-          className="mt-6 w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-xl shadow-slate-200 hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
-        >
-          <PlusCircle size={20} />
-          New Payment
-        </button>
-      </aside>
+        <div className="mt-auto pt-6 border-t border-slate-800">
+          <button 
+            onClick={() => downloadCSV(payments, 'mortgage_export.csv')}
+            className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors"
+          >
+            <FileDown size={18} />
+            Export to Excel
+          </button>
+        </div>
+      </nav>
 
-      {/* Main Content */}
-      <main className="flex-1 p-4 md:p-10 overflow-y-auto max-h-screen">
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-10">
-          <div>
-            <h2 className="text-3xl font-black text-slate-900">
-              {activeTab === 'dash' && 'Dashboard Overview'}
-              {activeTab === 'history' && 'Payment History'}
-              {activeTab === 'charts' && 'Financial Insights'}
-              {activeTab === 'admin' && 'System Maintenance'}
-            </h2>
-            <p className="text-slate-500 font-medium">Tracking your path to home ownership.</p>
-          </div>
-
-          {(activeTab === 'history' || activeTab === 'dash') && (
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text"
-                placeholder="Search payments..."
-                className="pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-2xl w-full md:w-64 outline-none focus:ring-4 focus:ring-blue-100 transition-all font-medium"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-          )}
-        </header>
-
+      {/* Main Content Area */}
+      <main className="flex-1 bg-[#F8FAFC] p-4 lg:p-10 overflow-y-auto">
         {activeTab === 'dash' && (
-          <>
-            <Stats stats={stats} />
-            <div className="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex items-center justify-between">
-                <h3 className="text-xl font-bold text-slate-800">Recent Payments</h3>
-                <button onClick={() => setActiveTab('history')} className="text-blue-600 font-bold text-sm hover:underline">View All</button>
+          <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <header>
+              <h2 className="text-4xl font-extrabold tracking-tight text-slate-900">Mortgage Summary</h2>
+              <p className="text-slate-500 font-medium text-lg mt-1">Real-time status of your home loan.</p>
+            </header>
+
+            {/* Hero Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-transform hover:scale-[1.01]">
+                <div className="flex justify-between items-start">
+                  <div className="bg-blue-50 text-blue-600 p-3 rounded-2xl"><TrendingDown size={28} /></div>
+                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Balance</span>
+                </div>
+                <div>
+                  <p className="text-slate-500 font-bold mb-1">Remaining Balance</p>
+                  <p className="text-4xl font-black text-slate-900">{formatUSD(stats.currentBalance)}</p>
+                </div>
               </div>
-              <PaymentTable 
-                payments={filteredPayments.slice(0, 5)} 
-                onEdit={handleEditPayment}
-                onDelete={handleDeletePayment}
-              />
+
+              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-transform hover:scale-[1.01]">
+                <div className="flex justify-between items-start">
+                  <div className="bg-emerald-50 text-emerald-600 p-3 rounded-2xl"><Wallet size={28} /></div>
+                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Progress</span>
+                </div>
+                <div>
+                  <div className="flex justify-between items-end mb-2">
+                    <p className="text-slate-500 font-bold">Equity Gained</p>
+                    <p className="text-emerald-600 font-black">{Math.round(stats.percentComplete)}%</p>
+                  </div>
+                  <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${stats.percentComplete}%` }}></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-transform hover:scale-[1.01]">
+                <div className="flex justify-between items-start">
+                  <div className="bg-rose-50 text-rose-600 p-3 rounded-2xl"><History size={28} /></div>
+                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Activity</span>
+                </div>
+                <div>
+                  <p className="text-slate-500 font-bold mb-1">Total Paid to Date</p>
+                  <p className="text-4xl font-black text-slate-900">{formatUSD(stats.totalPaidToDate)}</p>
+                </div>
+              </div>
             </div>
-          </>
+
+            {/* Recent Activity Mini-Table */}
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
+                <h3 className="text-xl font-bold">Recent Payments</h3>
+                <button onClick={() => setActiveTab('history')} className="text-blue-600 font-bold text-sm flex items-center gap-1 hover:underline">
+                  View full history <ChevronRight size={16} />
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-slate-400 text-xs font-bold uppercase tracking-widest">
+                    <tr>
+                      <th className="px-8 py-4">Date</th>
+                      <th className="px-8 py-4">Amount</th>
+                      <th className="px-8 py-4">Principal</th>
+                      <th className="px-8 py-4">Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {payments.slice(-5).reverse().map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-8 py-5 font-bold text-slate-700">{p.date}</td>
+                        <td className="px-8 py-5 font-black text-slate-900">{formatUSD(p.totalPaid)}</td>
+                        <td className="px-8 py-5 font-semibold text-emerald-600">+{formatUSD(p.principalPart)}</td>
+                        <td className="px-8 py-5 font-medium text-slate-500">{formatUSD(p.remainingBalance)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'entry' && (
+          <PaymentForm onSave={handleAddPayment} config={config} lastBalance={stats.currentBalance} />
         )}
 
         {activeTab === 'history' && (
-          <div className="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden">
-             <PaymentTable 
-                payments={filteredPayments} 
-                onEdit={handleEditPayment}
-                onDelete={handleDeletePayment}
-              />
+          <div className="max-w-5xl mx-auto space-y-6">
+            <header className="flex justify-between items-center mb-8">
+              <div>
+                <h2 className="text-3xl font-black text-slate-900">Payment Ledger</h2>
+                <p className="text-slate-500 font-medium">Full record of all payments made.</p>
+              </div>
+              <button 
+                onClick={() => downloadCSV(payments, 'mortgage_history.csv')}
+                className="bg-white border border-slate-200 px-6 py-3 rounded-2xl font-bold text-slate-700 flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
+              >
+                <FileDown size={20} /> Download CSV
+              </button>
+            </header>
+
+            <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+               <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest">
+                    <tr>
+                      <th className="px-6 py-4">Date</th>
+                      <th className="px-6 py-4">Total Paid</th>
+                      <th className="px-6 py-4">Principal</th>
+                      <th className="px-6 py-4">Interest</th>
+                      <th className="px-6 py-4">Taxes/Ins</th>
+                      <th className="px-6 py-4">Ending Balance</th>
+                      <th className="px-6 py-4 text-center">Delete</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {[...payments].reverse().map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50/50">
+                        <td className="px-6 py-4 font-bold">{p.date}</td>
+                        <td className="px-6 py-4 font-black">{formatUSD(p.totalPaid)}</td>
+                        <td className="px-6 py-4 text-emerald-600 font-bold">{formatUSD(p.principalPart)}</td>
+                        <td className="px-6 py-4 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
+                        <td className="px-6 py-4 text-slate-400 font-medium">{formatUSD(p.taxPart + p.insurancePart)}</td>
+                        <td className="px-6 py-4 font-bold text-slate-700">{formatUSD(p.remainingBalance)}</td>
+                        <td className="px-6 py-4 text-center">
+                          <button onClick={() => deletePayment(p.id)} className="text-slate-300 hover:text-rose-600 transition-colors">
+                            <Trash2 size={20} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+               </table>
+            </div>
           </div>
         )}
 
-        {activeTab === 'charts' && (
-          <Charts payments={payments} />
-        )}
+        {activeTab === 'settings' && (
+          <div className="max-w-2xl mx-auto space-y-8">
+            <header>
+              <h2 className="text-3xl font-black">Mortgage Configuration</h2>
+              <p className="text-slate-500">Update loan terms or original balance.</p>
+            </header>
 
-        {activeTab === 'admin' && (
-          <div className="space-y-8">
-            <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-slate-100">
-               <h3 className="text-xl font-bold text-slate-800 mb-6">General Settings</h3>
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                 <div>
-                    <label className="block text-sm font-bold text-slate-600 mb-2">House Nickname</label>
-                    <input 
-                      type="text" 
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                      value={settings.houseNickName}
-                      onChange={(e) => setSettings(s => ({...s, houseNickName: e.target.value}))}
-                    />
-                 </div>
-                 <div>
-                    <label className="block text-sm font-bold text-slate-600 mb-2">Original Loan Balance ($)</label>
-                    <input 
-                      type="number" 
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
-                      value={settings.initialBalance}
-                      onChange={(e) => setSettings(s => ({...s, initialBalance: parseFloat(e.target.value) || 0}))}
-                    />
-                 </div>
-               </div>
+            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-8">
+              <div className="grid grid-cols-1 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-600 block uppercase tracking-wider ml-1">House Nickname</label>
+                  <input 
+                    type="text" 
+                    value={config.nickname}
+                    onChange={(e) => setConfig({...config, nickname: e.target.value})}
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-600 block uppercase tracking-wider ml-1">Original Loan Balance ($)</label>
+                  <input 
+                    type="number" 
+                    value={config.initialBalance}
+                    onChange={(e) => setConfig({...config, initialBalance: parseFloat(e.target.value) || 0})}
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-600 block uppercase tracking-wider ml-1">Interest Rate (%)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={config.annualRate}
+                    onChange={(e) => setConfig({...config, annualRate: parseFloat(e.target.value) || 0})}
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="p-6 bg-blue-50 rounded-2xl flex gap-4 items-start border border-blue-100">
+                <AlertCircle className="text-blue-600 shrink-0" size={24} />
+                <p className="text-blue-900 text-sm font-medium">
+                  Changing the initial balance or interest rate will update the equity calculations on your dashboard instantly.
+                </p>
+              </div>
             </div>
-            <Maintenance payments={payments} onRestore={setPayments} />
           </div>
         )}
       </main>
+    </div>
+  );
+};
 
-      {isFormOpen && (
-        <PaymentForm 
-          payment={editingPayment}
-          onSave={handleSavePayment}
-          onClose={() => { setIsFormOpen(false); setEditingPayment(undefined); }}
-        />
-      )}
+const PaymentForm: React.FC<{
+  onSave: (p: any) => void; 
+  config: MortgageConfig;
+  lastBalance: number;
+}> = ({ onSave, config, lastBalance }) => {
+  const [data, setData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    totalPaid: 0,
+    principalPart: 0,
+    interestPart: 0,
+    taxPart: 0,
+    insurancePart: 0,
+    remainingBalance: lastBalance,
+    note: "",
+    checkNumber: ""
+  });
+
+  const handleAutoSplit = () => {
+    // Standard split: Total - Taxes - Insurance = Net. Net is split between P and I.
+    const netPayment = data.totalPaid - data.taxPart - data.insurancePart;
+    const { principal, interest } = calculateSuggestedSplit(lastBalance, config.annualRate, netPayment);
+    setData({
+      ...data,
+      principalPart: principal,
+      interestPart: interest,
+      remainingBalance: Math.round((lastBalance - principal) * 100) / 100
+    });
+  };
+
+  const inputGroup = "space-y-2";
+  const labelStyle = "text-xs font-bold text-slate-500 uppercase tracking-widest ml-1";
+  const inputStyle = "w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all placeholder:text-slate-300";
+
+  return (
+    <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
+      <header className="mb-10">
+        <h2 className="text-3xl font-black text-slate-900">Add Monthly Payment</h2>
+        <p className="text-slate-500 font-medium">Enter the details from your statement below.</p>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        {/* Left Side: Main Inputs */}
+        <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-6">
+          <div className={inputGroup}>
+            <label className={labelStyle}>Payment Date</label>
+            <div className="relative">
+              <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+              <input type="date" className={`${inputStyle} pl-16`} value={data.date} onChange={e => setData({...data, date: e.target.value})} />
+            </div>
+          </div>
+
+          <div className={inputGroup}>
+            <label className={labelStyle}>Total Amount Paid ($)</label>
+            <input 
+              type="number" 
+              placeholder="0.00"
+              className={inputStyle} 
+              value={data.totalPaid || ''} 
+              onChange={e => setData({...data, totalPaid: parseFloat(e.target.value) || 0})} 
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 pt-4">
+            <div className={inputGroup}>
+              <label className={labelStyle}>Taxes ($)</label>
+              <input 
+                type="number" 
+                placeholder="0.00"
+                className={inputStyle} 
+                value={data.taxPart || ''} 
+                onChange={e => setData({...data, taxPart: parseFloat(e.target.value) || 0})} 
+              />
+            </div>
+            <div className={inputGroup}>
+              <label className={labelStyle}>Insurance ($)</label>
+              <input 
+                type="number" 
+                placeholder="0.00"
+                className={inputStyle} 
+                value={data.insurancePart || ''} 
+                onChange={e => setData({...data, insurancePart: parseFloat(e.target.value) || 0})} 
+              />
+            </div>
+          </div>
+
+          <button 
+            onClick={handleAutoSplit}
+            className="w-full bg-blue-50 text-blue-700 py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 hover:bg-blue-100 transition-all border-2 border-dashed border-blue-200"
+          >
+            <Calculator size={24} />
+            Calculate Principal Split
+          </button>
+        </div>
+
+        {/* Right Side: Calculated Split & Save */}
+        <div className="space-y-6">
+          <div className="bg-emerald-600 text-white p-10 rounded-[2.5rem] shadow-xl shadow-emerald-900/10 space-y-6">
+             <div className="flex justify-between items-center">
+                <h3 className="text-xl font-black">Calculated Result</h3>
+                <Save size={24} />
+             </div>
+             <div className="grid grid-cols-2 gap-6">
+                <div>
+                   <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">To Principal</p>
+                   <p className="text-3xl font-black">{formatUSD(data.principalPart)}</p>
+                </div>
+                <div>
+                   <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">To Interest</p>
+                   <p className="text-3xl font-black">{formatUSD(data.interestPart)}</p>
+                </div>
+             </div>
+             <div className="pt-6 border-t border-emerald-500/50">
+                <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">New Remaining Balance</p>
+                <p className="text-4xl font-black">{formatUSD(data.remainingBalance)}</p>
+             </div>
+          </div>
+
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4">
+            <div className={inputGroup}>
+              <label className={labelStyle}>Check / Ref Number (Optional)</label>
+              <input type="text" className={inputStyle} value={data.checkNumber} onChange={e => setData({...data, checkNumber: e.target.value})} />
+            </div>
+            <button 
+              disabled={!data.totalPaid || data.remainingBalance < 0}
+              onClick={() => onSave(data)}
+              className="w-full bg-slate-900 text-white py-6 rounded-2xl font-black text-xl hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl shadow-slate-200"
+            >
+              Add to History
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

@@ -1,28 +1,35 @@
 
 export interface PaymentRecord {
   id: string;
-  paymentDate: string;
-  interestRate: number; // e.g., 2.8
-  principalBalance: number;
-  principalPaid: number;
-  interestPaid: number;
-  taxesPaid: number;
-  insurancePaid: number;
-  totalPayment: number;
-  checkNumber: string;
-  note?: string;
+  date: string;
+  totalPaid: number;
+  principalPart: number;
+  interestPart: number;
+  taxPart: number;
+  insurancePart: number;
+  remainingBalance: number;
+  note: string;
+  checkNumber?: string;
+  lastModified: number;
+  // Added for compatibility with components/PaymentForm.tsx
+  interestRate?: number;
+}
+
+export interface MortgageConfig {
+  nickname: string;
+  initialBalance: number;
+  annualRate: number;
+  startDate: string;
 }
 
 export interface SummaryStats {
-  remainingBalance: number;
-  totalPrincipalPaid: number;
+  currentBalance: number;
+  totalPaidToDate: number;
   totalInterestPaid: number;
+  totalEquityGained: number;
+  percentComplete: number;
+  // Added for compatibility with components/Stats.tsx
+  totalPrincipalPaid: number;
   totalTaxesPaid: number;
   totalInsurancePaid: number;
-  originalBalance: number;
-}
-
-export interface AppSettings {
-  initialBalance: number;
-  houseNickName: string;
 }

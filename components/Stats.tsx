@@ -12,7 +12,7 @@ const Stats: React.FC<StatsProps> = ({ stats }) => {
   const cards = [
     {
       label: 'Remaining Balance',
-      value: formatCurrency(stats.remainingBalance),
+      value: formatCurrency(stats.currentBalance),
       icon: <Landmark className="text-blue-600" size={28} />,
       bg: 'bg-blue-50',
       border: 'border-blue-100'

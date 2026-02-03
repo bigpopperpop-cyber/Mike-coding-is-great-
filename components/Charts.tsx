@@ -21,14 +21,14 @@ interface ChartsProps {
 
 const Charts: React.FC<ChartsProps> = ({ payments }) => {
   const chartData = [...payments]
-    .sort((a, b) => new Date(a.paymentDate).getTime() - new Date(b.paymentDate).getTime())
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
     .slice(-12) // Show last 12 records
     .map(p => ({
-      date: new Date(p.paymentDate).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-      balance: p.principalBalance,
-      paid: p.principalPaid,
-      interest: Math.abs(p.interestPaid),
-      taxes: p.taxesPaid
+      date: new Date(p.date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      balance: p.remainingBalance,
+      paid: p.principalPart,
+      interest: Math.abs(p.interestPart),
+      taxes: p.taxPart
     }));
 
   return (

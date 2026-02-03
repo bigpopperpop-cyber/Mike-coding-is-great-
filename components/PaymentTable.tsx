@@ -41,21 +41,21 @@ const PaymentTable: React.FC<PaymentTableProps> = ({ payments, onEdit, onDelete 
               <td className="px-6 py-5">
                 <div className="flex items-center gap-3">
                   <CheckCircle2 size={18} className="text-blue-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  <span className="font-bold text-slate-800 text-lg">{formatDate(p.paymentDate)}</span>
+                  <span className="font-bold text-slate-800 text-lg">{formatDate(p.date)}</span>
                 </div>
               </td>
               <td className="px-6 py-5">
-                <span className="font-bold text-slate-900">{formatCurrency(p.totalPayment)}</span>
+                <span className="font-bold text-slate-900">{formatCurrency(p.totalPaid)}</span>
                 <div className="md:hidden text-xs text-slate-400">CH: {p.checkNumber || 'N/A'}</div>
               </td>
               <td className="px-6 py-5">
                 <div className="flex flex-col">
-                  <span className="text-emerald-600 font-bold">+{formatCurrency(p.principalPaid)}</span>
+                  <span className="text-emerald-600 font-bold">+{formatCurrency(p.principalPart)}</span>
                   <span className="text-[10px] text-slate-400">Principal</span>
                 </div>
               </td>
               <td className="px-6 py-5">
-                <span className="text-slate-600 font-medium">{formatCurrency(p.principalBalance)}</span>
+                <span className="text-slate-600 font-medium">{formatCurrency(p.remainingBalance)}</span>
               </td>
               <td className="px-6 py-5 hidden md:table-cell">
                 <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-sm font-medium">
