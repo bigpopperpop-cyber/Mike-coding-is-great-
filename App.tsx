@@ -20,7 +20,8 @@ import {
   Upload,
   Download,
   Receipt,
-  Pencil
+  Pencil,
+  Hash
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -135,20 +136,30 @@ const App: React.FC = () => {
     return { currentBalance, totalPaid, totalInterest, progress };
   }, [payments, config]);
 
+  // Calculate cumulative totals for history table
+  const paymentsWithCumulative = useMemo(() => {
+    const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let runningTotal = 0;
+    return sorted.map(p => {
+      runningTotal += p.totalPaid;
+      return { ...p, cumulativePaid: runningTotal };
+    });
+  }, [payments]);
+
   const handleMagicSplit = () => {
-    // If editing, we should ideally use the balance *before* this record.
-    // For simplicity, we use the current balance from the dashboard stats
-    // or the previous record in the chain if found.
     let targetBalance = config.initialBalance;
+    const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     
     if (editingId) {
-        const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         const idx = sorted.findIndex(p => p.id === editingId);
         if (idx > 0) {
             targetBalance = sorted[idx-1].remainingBalance;
         }
     } else {
-        targetBalance = stats.currentBalance;
+        // If not editing, use the balance of the most recent payment
+        if (sorted.length > 0) {
+          targetBalance = sorted[sorted.length - 1].remainingBalance;
+        }
     }
     
     const monthlyRate = (config.annualRate / 100) / 12;
@@ -298,7 +309,7 @@ const App: React.FC = () => {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 p-6 lg:p-12 overflow-y-auto">
-        <div className="max-w-6xl mx-auto space-y-10">
+        <div className="max-w-7xl mx-auto space-y-10">
           
           {activeTab === 'dash' && (
             <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 space-y-10">
@@ -450,14 +461,18 @@ const App: React.FC = () => {
                       </div>
                     </div>
                     <div className="pt-6 border-t border-white/20">
-                      <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">Ending Balance</p>
-                      <p className="text-4xl font-black">{formatUSD(formData.remainingBalance)}</p>
+                      <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">Lifetime Paid to Date</p>
+                      <p className="text-4xl font-black">{formatUSD(stats.totalPaid + (editingId ? 0 : formData.totalPaid))}</p>
+                      <p className="text-emerald-200 text-[10px] font-bold uppercase tracking-widest mt-4 mb-1">New Balance After Payment</p>
+                      <p className="text-2xl font-black opacity-90">{formatUSD(formData.remainingBalance)}</p>
                     </div>
                   </div>
 
                   <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 space-y-6">
                     <div className="space-y-3">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Check / Ref Number</label>
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 flex items-center gap-1">
+                        <Hash size={12} /> Check / Ref Number
+                      </label>
                       <input 
                         type="text" 
                         placeholder="e.g. #4943"
@@ -498,39 +513,45 @@ const App: React.FC = () => {
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
                       <tr>
-                        <th className="px-10 py-6">Date</th>
-                        <th className="px-10 py-6">Total Paid</th>
-                        <th className="px-10 py-6">Principal</th>
-                        <th className="px-10 py-6">Interest</th>
-                        <th className="px-10 py-6">New Balance</th>
-                        <th className="px-10 py-6 text-center">Actions</th>
+                        <th className="px-8 py-6">Date</th>
+                        <th className="px-8 py-6">Check #</th>
+                        <th className="px-8 py-6">Total Paid</th>
+                        <th className="px-8 py-6">Principal</th>
+                        <th className="px-8 py-6">Interest</th>
+                        <th className="px-8 py-6">Paid to Date</th>
+                        <th className="px-8 py-6">Ending Balance</th>
+                        <th className="px-8 py-6 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {[...payments].reverse().map(p => (
+                      {[...paymentsWithCumulative].reverse().map(p => (
                         <tr key={p.id} className="hover:bg-blue-50/30 transition-colors group">
-                          <td className="px-10 py-6 font-extrabold text-slate-900">
-                            {new Date(p.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                          <td className="px-8 py-6 font-extrabold text-slate-900 whitespace-nowrap">
+                            {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </td>
-                          <td className="px-10 py-6 font-black text-blue-600">{formatUSD(p.totalPaid)}</td>
-                          <td className="px-10 py-6 text-emerald-600 font-bold">{formatUSD(p.principalPart)}</td>
-                          <td className="px-10 py-6 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
-                          <td className="px-10 py-6 font-bold text-slate-500">{formatUSD(p.remainingBalance)}</td>
-                          <td className="px-10 py-6 text-center">
+                          <td className="px-8 py-6 font-bold text-slate-400">
+                            {p.checkNumber ? <span className="bg-slate-100 px-3 py-1 rounded-lg text-slate-600">{p.checkNumber}</span> : '-'}
+                          </td>
+                          <td className="px-8 py-6 font-black text-blue-600">{formatUSD(p.totalPaid)}</td>
+                          <td className="px-8 py-6 text-emerald-600 font-bold">{formatUSD(p.principalPart)}</td>
+                          <td className="px-8 py-6 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
+                          <td className="px-8 py-6 font-black text-slate-800 bg-slate-50/50">{formatUSD(p.cumulativePaid)}</td>
+                          <td className="px-8 py-6 font-bold text-slate-400 italic">{formatUSD(p.remainingBalance)}</td>
+                          <td className="px-8 py-6 text-center">
                             <div className="flex items-center justify-center gap-2">
                                 <button 
                                     onClick={() => startEditing(p)} 
                                     className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
                                     title="Edit entry"
                                 >
-                                    <Pencil size={20} />
+                                    <Pencil size={18} />
                                 </button>
                                 <button 
                                     onClick={() => deletePayment(p.id)} 
                                     className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                                     title="Delete entry"
                                 >
-                                    <Trash2 size={20} />
+                                    <Trash2 size={18} />
                                 </button>
                             </div>
                           </td>
@@ -538,7 +559,7 @@ const App: React.FC = () => {
                       ))}
                       {payments.length === 0 && (
                         <tr>
-                          <td colSpan={6} className="px-10 py-20 text-center text-slate-400 font-bold italic">
+                          <td colSpan={8} className="px-10 py-20 text-center text-slate-400 font-bold italic">
                             No payment records found. Add your first payment to get started.
                           </td>
                         </tr>
