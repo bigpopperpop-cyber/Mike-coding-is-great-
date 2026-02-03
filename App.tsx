@@ -13,442 +13,534 @@ import {
   AlertCircle,
   Save,
   ChevronRight,
-  Calculator
+  Calculator,
+  ShieldCheck,
+  Landmark,
+  X,
+  Upload,
+  Download,
+  Receipt
 } from 'lucide-react';
-import { PaymentRecord, MortgageConfig, SummaryStats } from './types.ts';
-import { formatUSD, calculateSuggestedSplit, downloadCSV } from './utils.ts';
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Legend
+} from 'recharts';
 
+// --- Types ---
+interface PaymentRecord {
+  id: string;
+  date: string;
+  totalPaid: number;
+  principalPart: number;
+  interestPart: number;
+  taxPart: number;
+  insurancePart: number;
+  remainingBalance: number;
+  checkNumber?: string;
+}
+
+interface MortgageConfig {
+  nickname: string;
+  initialBalance: number;
+  annualRate: number;
+}
+
+// --- Utilities ---
+const formatUSD = (val: number) => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(val);
+};
+
+const downloadFile = (content: string, fileName: string, contentType: string) => {
+  const a = document.createElement("a");
+  const file = new Blob([content], { type: contentType });
+  a.href = URL.createObjectURL(file);
+  a.download = fileName;
+  a.click();
+};
+
+// --- Sub-Components ---
+
+const StatCard = ({ label, value, icon: Icon, colorClass, subValue }: any) => (
+  <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-all hover:shadow-md">
+    <div className="flex justify-between items-start">
+      <div className={`p-3 rounded-2xl ${colorClass}`}>
+        <Icon size={28} />
+      </div>
+      <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Metric</span>
+    </div>
+    <div>
+      <p className="text-slate-500 font-bold mb-1">{label}</p>
+      <p className="text-3xl font-black text-slate-900 leading-none">{value}</p>
+      {subValue && <p className="text-xs font-bold mt-2 text-slate-400 uppercase tracking-widest">{subValue}</p>}
+    </div>
+  </div>
+);
+
+// --- Main App ---
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dash' | 'entry' | 'history' | 'settings'>('dash');
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [config, setConfig] = useState<MortgageConfig>({
     nickname: "Family Home",
-    initialBalance: 250000,
-    annualRate: 3.5,
-    startDate: new Date().toISOString().split('T')[0]
+    initialBalance: 230000,
+    annualRate: 3.25
+  });
+
+  // Entry Form State
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    totalPaid: 0,
+    taxPart: 0,
+    insurancePart: 0,
+    principalPart: 0,
+    interestPart: 0,
+    remainingBalance: 0,
+    checkNumber: ""
   });
 
   // Load Data
   useEffect(() => {
-    const saved = localStorage.getItem('mortgage_db');
-    const savedConfig = localStorage.getItem('mortgage_cfg');
+    const saved = localStorage.getItem('house_db_v2');
+    const savedCfg = localStorage.getItem('house_cfg_v2');
     if (saved) setPayments(JSON.parse(saved));
-    if (savedConfig) setConfig(JSON.parse(savedConfig));
+    if (savedCfg) setConfig(JSON.parse(savedCfg));
   }, []);
 
   // Save Data
   useEffect(() => {
-    localStorage.setItem('mortgage_db', JSON.stringify(payments));
-    localStorage.setItem('mortgage_cfg', JSON.stringify(config));
+    localStorage.setItem('house_db_v2', JSON.stringify(payments));
+    localStorage.setItem('house_cfg_v2', JSON.stringify(config));
   }, [payments, config]);
 
-  const stats: SummaryStats = useMemo(() => {
+  const stats = useMemo(() => {
     const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const currentBalance = sorted.length > 0 ? sorted[sorted.length - 1].remainingBalance : config.initialBalance;
-    const totalPaidToDate = payments.reduce((sum, p) => sum + p.totalPaid, 0);
-    const totalInterestPaid = payments.reduce((sum, p) => sum + p.interestPart, 0);
-    const totalPrincipalPaid = payments.reduce((sum, p) => sum + p.principalPart, 0);
-    const totalTaxesPaid = payments.reduce((sum, p) => sum + p.taxPart, 0);
-    const totalInsurancePaid = payments.reduce((sum, p) => sum + p.insurancePart, 0);
-    const totalEquityGained = config.initialBalance - currentBalance;
-    const percentComplete = (totalEquityGained / config.initialBalance) * 100;
-
-    return {
-      currentBalance,
-      totalPaidToDate,
-      totalInterestPaid,
-      totalEquityGained,
-      percentComplete,
-      totalPrincipalPaid,
-      totalTaxesPaid,
-      totalInsurancePaid
-    };
+    const totalPaid = payments.reduce((sum, p) => sum + p.totalPaid, 0);
+    const totalInterest = payments.reduce((sum, p) => sum + p.interestPart, 0);
+    const progress = Math.min(100, Math.max(0, ((config.initialBalance - currentBalance) / config.initialBalance) * 100));
+    
+    return { currentBalance, totalPaid, totalInterest, progress };
   }, [payments, config]);
 
-  const handleAddPayment = (p: Omit<PaymentRecord, 'id' | 'lastModified'>) => {
-    const newPayment: PaymentRecord = {
-      ...p,
-      id: crypto.randomUUID(),
-      lastModified: Date.now()
+  const handleMagicSplit = () => {
+    const currentBal = payments.length > 0 
+      ? payments[payments.length - 1].remainingBalance 
+      : config.initialBalance;
+    
+    const monthlyRate = (config.annualRate / 100) / 12;
+    const interest = currentBal * monthlyRate;
+    const netForLoan = formData.totalPaid - formData.taxPart - formData.insurancePart;
+    const principal = netForLoan - interest;
+
+    setFormData({
+      ...formData,
+      interestPart: Math.round(interest * 100) / 100,
+      principalPart: Math.round(principal * 100) / 100,
+      remainingBalance: Math.round((currentBal - principal) * 100) / 100
+    });
+  };
+
+  const savePayment = () => {
+    if (!formData.totalPaid || formData.remainingBalance <= 0) {
+      alert("Please ensure the total amount is correct.");
+      return;
+    }
+    const newRecord: PaymentRecord = {
+      ...formData,
+      id: crypto.randomUUID()
     };
-    setPayments(prev => [...prev, newPayment].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+    setPayments([...payments, newRecord].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
     setActiveTab('dash');
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      totalPaid: 0,
+      taxPart: 0,
+      insurancePart: 0,
+      principalPart: 0,
+      interestPart: 0,
+      remainingBalance: 0,
+      checkNumber: ""
+    });
   };
 
   const deletePayment = (id: string) => {
-    if (confirm("Are you sure you want to delete this payment?")) {
-      setPayments(prev => prev.filter(p => p.id !== id));
+    if (confirm("Permanently delete this payment record?")) {
+      setPayments(payments.filter(p => p.id !== id));
     }
   };
 
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = JSON.parse(evt.target?.result as string);
+        if (Array.isArray(data)) {
+          if (confirm("This will replace all current data. Proceed?")) setPayments(data);
+        }
+      } catch (err) { alert("Invalid file format."); }
+    };
+    reader.readAsText(file);
+  };
+
+  const chartData = useMemo(() => {
+    return payments.slice(-12).map(p => ({
+      name: new Date(p.date).toLocaleDateString('en-US', { month: 'short' }),
+      balance: p.remainingBalance,
+      paid: p.principalPart,
+      interest: p.interestPart
+    }));
+  }, [payments]);
+
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row">
-      {/* Sidebar Navigation */}
-      <nav className="w-full lg:w-72 bg-slate-900 text-white p-6 flex flex-col">
-        <div className="flex items-center gap-3 mb-10">
-          <div className="bg-blue-600 p-2 rounded-xl">
-            <Home size={28} />
+    <div className="min-h-screen flex flex-col lg:flex-row bg-[#F8FAFC]">
+      {/* SIDEBAR */}
+      <nav className="w-full lg:w-80 bg-slate-900 text-white p-8 flex flex-col shadow-2xl z-20">
+        <div className="flex items-center gap-4 mb-12">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-500/20">
+            <Home size={32} />
           </div>
           <div>
-            <h1 className="font-bold text-xl leading-tight">{config.nickname}</h1>
-            <p className="text-slate-400 text-xs font-semibold tracking-widest uppercase">Tracker</p>
+            <h1 className="text-xl font-extrabold tracking-tight">{config.nickname}</h1>
+            <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">Family Ledger</p>
           </div>
         </div>
 
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-3">
           {[
-            { id: 'dash', label: 'Overview', icon: Home },
-            { id: 'entry', label: 'New Payment', icon: PlusCircle },
-            { id: 'history', label: 'History', icon: History },
-            { id: 'settings', label: 'Settings', icon: Settings },
+            { id: 'dash', label: 'Dashboard', icon: TrendingDown },
+            { id: 'entry', label: 'Add Payment', icon: PlusCircle },
+            { id: 'history', label: 'View History', icon: History },
+            { id: 'settings', label: 'System Settings', icon: Settings },
           ].map(item => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id as any)}
-              className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-all ${
-                activeTab === item.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              className={`w-full flex items-center gap-4 px-6 py-5 rounded-[1.5rem] font-extrabold transition-all group ${
+                activeTab === item.id 
+                  ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 translate-x-1' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              <item.icon size={22} />
+              <item.icon size={24} className={activeTab === item.id ? 'animate-pulse' : ''} />
               {item.label}
             </button>
           ))}
         </div>
 
-        <div className="mt-auto pt-6 border-t border-slate-800">
+        <div className="mt-12 pt-8 border-t border-slate-800 space-y-3">
           <button 
-            onClick={() => downloadCSV(payments, 'mortgage_export.csv')}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-slate-800 rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors"
+            onClick={() => downloadFile(JSON.stringify(payments), 'mortgage_backup.json', 'application/json')}
+            className="w-full flex items-center justify-between px-5 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl text-xs font-black uppercase tracking-widest transition-colors"
           >
-            <FileDown size={18} />
-            Export to Excel
+            Backup Data <Download size={16} />
           </button>
         </div>
       </nav>
 
-      {/* Main Content Area */}
-      <main className="flex-1 bg-[#F8FAFC] p-4 lg:p-10 overflow-y-auto">
-        {activeTab === 'dash' && (
-          <div className="max-w-5xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <header>
-              <h2 className="text-4xl font-extrabold tracking-tight text-slate-900">Mortgage Summary</h2>
-              <p className="text-slate-500 font-medium text-lg mt-1">Real-time status of your home loan.</p>
-            </header>
+      {/* MAIN CONTENT */}
+      <main className="flex-1 p-6 lg:p-12 overflow-y-auto">
+        <div className="max-w-6xl mx-auto space-y-10">
+          
+          {activeTab === 'dash' && (
+            <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 space-y-10">
+              <header>
+                <h2 className="text-4xl font-black text-slate-900">Home Overview</h2>
+                <p className="text-slate-500 text-lg font-medium mt-2">Checking in on your progress to owning your home.</p>
+              </header>
 
-            {/* Hero Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-transform hover:scale-[1.01]">
-                <div className="flex justify-between items-start">
-                  <div className="bg-blue-50 text-blue-600 p-3 rounded-2xl"><TrendingDown size={28} /></div>
-                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Balance</span>
-                </div>
-                <div>
-                  <p className="text-slate-500 font-bold mb-1">Remaining Balance</p>
-                  <p className="text-4xl font-black text-slate-900">{formatUSD(stats.currentBalance)}</p>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <StatCard 
+                  label="Remaining Balance" 
+                  value={formatUSD(stats.currentBalance)} 
+                  icon={Landmark} 
+                  colorClass="bg-blue-50 text-blue-600" 
+                />
+                <StatCard 
+                  label="Loan Progress" 
+                  value={`${Math.round(stats.progress)}%`} 
+                  subValue="of loan completed"
+                  icon={TrendingDown} 
+                  colorClass="bg-emerald-50 text-emerald-600" 
+                />
+                <StatCard 
+                  label="Total Interest Paid" 
+                  value={formatUSD(stats.totalInterest)} 
+                  icon={Receipt} 
+                  colorClass="bg-rose-50 text-rose-600" 
+                />
+                <StatCard 
+                  label="Total Invested" 
+                  value={formatUSD(stats.totalPaid)} 
+                  icon={Wallet} 
+                  colorClass="bg-amber-50 text-amber-600" 
+                />
               </div>
 
-              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-transform hover:scale-[1.01]">
-                <div className="flex justify-between items-start">
-                  <div className="bg-emerald-50 text-emerald-600 p-3 rounded-2xl"><Wallet size={28} /></div>
-                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Progress</span>
-                </div>
-                <div>
-                  <div className="flex justify-between items-end mb-2">
-                    <p className="text-slate-500 font-bold">Equity Gained</p>
-                    <p className="text-emerald-600 font-black">{Math.round(stats.percentComplete)}%</p>
+              {payments.length > 0 && (
+                <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100">
+                  <h3 className="text-xl font-black mb-8">Loan Paydown Trend</h3>
+                  <div className="h-[400px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={chartData}>
+                        <defs>
+                          <linearGradient id="colorBal" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} tickFormatter={(v) => `$${v/1000}k`} />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={4} fillOpacity={1} fill="url(#colorBal)" />
+                      </AreaChart>
+                    </ResponsiveContainer>
                   </div>
-                  <div className="h-4 bg-slate-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${stats.percentComplete}%` }}></div>
-                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+          )}
 
-              <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between h-56 transition-transform hover:scale-[1.01]">
-                <div className="flex justify-between items-start">
-                  <div className="bg-rose-50 text-rose-600 p-3 rounded-2xl"><History size={28} /></div>
-                  <span className="text-slate-400 text-xs font-bold uppercase tracking-widest">Activity</span>
+          {activeTab === 'entry' && (
+            <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
+              <header className="mb-10">
+                <h2 className="text-4xl font-black text-slate-900">New Payment Entry</h2>
+                <p className="text-slate-500 text-lg font-medium">Use your bank statement to fill in the boxes below.</p>
+              </header>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100 space-y-8">
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Payment Date</label>
+                    <input 
+                      type="date" 
+                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                      value={formData.date}
+                      onChange={e => setFormData({...formData, date: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Total Paid This Month ($)</label>
+                    <input 
+                      type="number" 
+                      placeholder="0.00"
+                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-2xl font-black focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                      value={formData.totalPaid || ''}
+                      onChange={e => setFormData({...formData, totalPaid: parseFloat(e.target.value) || 0})}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Taxes ($)</label>
+                      <input 
+                        type="number" 
+                        placeholder="0.00"
+                        className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                        value={formData.taxPart || ''}
+                        onChange={e => setFormData({...formData, taxPart: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                    <div className="space-y-3">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Insurance ($)</label>
+                      <input 
+                        type="number" 
+                        placeholder="0.00"
+                        className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                        value={formData.insurancePart || ''}
+                        onChange={e => setFormData({...formData, insurancePart: parseFloat(e.target.value) || 0})}
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleMagicSplit}
+                    className="w-full py-6 bg-blue-50 text-blue-700 rounded-2xl font-black text-lg flex items-center justify-center gap-3 border-2 border-dashed border-blue-200 hover:bg-blue-100 transition-all active:scale-[0.98]"
+                  >
+                    <Calculator size={24} /> Magic Calculate Split
+                  </button>
                 </div>
-                <div>
-                  <p className="text-slate-500 font-bold mb-1">Total Paid to Date</p>
-                  <p className="text-4xl font-black text-slate-900">{formatUSD(stats.totalPaidToDate)}</p>
+
+                <div className="space-y-8">
+                  <div className="bg-emerald-600 text-white p-10 rounded-[3rem] shadow-xl shadow-emerald-600/20 space-y-6">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-xl font-black">Result for Ledger</h3>
+                      <ShieldCheck size={32} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">To Principal</p>
+                        <p className="text-2xl font-black">{formatUSD(formData.principalPart)}</p>
+                      </div>
+                      <div>
+                        <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">To Interest</p>
+                        <p className="text-2xl font-black">{formatUSD(formData.interestPart)}</p>
+                      </div>
+                    </div>
+                    <div className="pt-6 border-t border-white/20">
+                      <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">New Balance After Payment</p>
+                      <p className="text-4xl font-black">{formatUSD(formData.remainingBalance)}</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100 space-y-6">
+                    <div className="space-y-3">
+                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Check / Ref Number</label>
+                      <input 
+                        type="text" 
+                        placeholder="e.g. #4943"
+                        className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
+                        value={formData.checkNumber}
+                        onChange={e => setFormData({...formData, checkNumber: e.target.value})}
+                      />
+                    </div>
+                    <button 
+                      onClick={savePayment}
+                      className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl hover:bg-black transition-all active:scale-[0.98]"
+                    >
+                      <Save size={24} /> Save to Database
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* Recent Activity Mini-Table */}
-            <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-                <h3 className="text-xl font-bold">Recent Payments</h3>
-                <button onClick={() => setActiveTab('history')} className="text-blue-600 font-bold text-sm flex items-center gap-1 hover:underline">
-                  View full history <ChevronRight size={16} />
+          {activeTab === 'history' && (
+            <div className="animate-in fade-in slide-in-from-left-6 duration-700 space-y-8">
+              <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div>
+                  <h2 className="text-4xl font-black text-slate-900">Payment Ledger</h2>
+                  <p className="text-slate-500 text-lg font-medium mt-1">Every payment you've made, sorted by date.</p>
+                </div>
+                <button 
+                   onClick={() => downloadFile(JSON.stringify(payments), 'mortgage_export.json', 'application/json')}
+                   className="bg-white px-8 py-4 rounded-2xl font-bold border border-slate-200 shadow-sm flex items-center gap-3 hover:bg-slate-50 transition-all"
+                >
+                  <FileDown size={20} /> Download Backup
                 </button>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 text-slate-400 text-xs font-bold uppercase tracking-widest">
-                    <tr>
-                      <th className="px-8 py-4">Date</th>
-                      <th className="px-8 py-4">Amount</th>
-                      <th className="px-8 py-4">Principal</th>
-                      <th className="px-8 py-4">Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {payments.slice(-5).reverse().map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-8 py-5 font-bold text-slate-700">{p.date}</td>
-                        <td className="px-8 py-5 font-black text-slate-900">{formatUSD(p.totalPaid)}</td>
-                        <td className="px-8 py-5 font-semibold text-emerald-600">+{formatUSD(p.principalPart)}</td>
-                        <td className="px-8 py-5 font-medium text-slate-500">{formatUSD(p.remainingBalance)}</td>
+              </header>
+
+              <div className="bg-white rounded-[3rem] shadow-sm border border-slate-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
+                      <tr>
+                        <th className="px-10 py-6">Date</th>
+                        <th className="px-10 py-6">Total Paid</th>
+                        <th className="px-10 py-6">Principal</th>
+                        <th className="px-10 py-6">Interest</th>
+                        <th className="px-10 py-6">New Balance</th>
+                        <th className="px-10 py-6 text-center">Delete</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'entry' && (
-          <PaymentForm onSave={handleAddPayment} config={config} lastBalance={stats.currentBalance} />
-        )}
-
-        {activeTab === 'history' && (
-          <div className="max-w-5xl mx-auto space-y-6">
-            <header className="flex justify-between items-center mb-8">
-              <div>
-                <h2 className="text-3xl font-black text-slate-900">Payment Ledger</h2>
-                <p className="text-slate-500 font-medium">Full record of all payments made.</p>
-              </div>
-              <button 
-                onClick={() => downloadCSV(payments, 'mortgage_history.csv')}
-                className="bg-white border border-slate-200 px-6 py-3 rounded-2xl font-bold text-slate-700 flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
-              >
-                <FileDown size={20} /> Download CSV
-              </button>
-            </header>
-
-            <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
-               <table className="w-full text-left border-collapse">
-                  <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest">
-                    <tr>
-                      <th className="px-6 py-4">Date</th>
-                      <th className="px-6 py-4">Total Paid</th>
-                      <th className="px-6 py-4">Principal</th>
-                      <th className="px-6 py-4">Interest</th>
-                      <th className="px-6 py-4">Taxes/Ins</th>
-                      <th className="px-6 py-4">Ending Balance</th>
-                      <th className="px-6 py-4 text-center">Delete</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {[...payments].reverse().map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50/50">
-                        <td className="px-6 py-4 font-bold">{p.date}</td>
-                        <td className="px-6 py-4 font-black">{formatUSD(p.totalPaid)}</td>
-                        <td className="px-6 py-4 text-emerald-600 font-bold">{formatUSD(p.principalPart)}</td>
-                        <td className="px-6 py-4 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
-                        <td className="px-6 py-4 text-slate-400 font-medium">{formatUSD(p.taxPart + p.insurancePart)}</td>
-                        <td className="px-6 py-4 font-bold text-slate-700">{formatUSD(p.remainingBalance)}</td>
-                        <td className="px-6 py-4 text-center">
-                          <button onClick={() => deletePayment(p.id)} className="text-slate-300 hover:text-rose-600 transition-colors">
-                            <Trash2 size={20} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-               </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'settings' && (
-          <div className="max-w-2xl mx-auto space-y-8">
-            <header>
-              <h2 className="text-3xl font-black">Mortgage Configuration</h2>
-              <p className="text-slate-500">Update loan terms or original balance.</p>
-            </header>
-
-            <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-8">
-              <div className="grid grid-cols-1 gap-6">
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-600 block uppercase tracking-wider ml-1">House Nickname</label>
-                  <input 
-                    type="text" 
-                    value={config.nickname}
-                    onChange={(e) => setConfig({...config, nickname: e.target.value})}
-                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-600 block uppercase tracking-wider ml-1">Original Loan Balance ($)</label>
-                  <input 
-                    type="number" 
-                    value={config.initialBalance}
-                    onChange={(e) => setConfig({...config, initialBalance: parseFloat(e.target.value) || 0})}
-                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-600 block uppercase tracking-wider ml-1">Interest Rate (%)</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={config.annualRate}
-                    onChange={(e) => setConfig({...config, annualRate: parseFloat(e.target.value) || 0})}
-                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-                  />
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {[...payments].reverse().map(p => (
+                        <tr key={p.id} className="hover:bg-blue-50/30 transition-colors group">
+                          <td className="px-10 py-6 font-extrabold text-slate-900">
+                            {new Date(p.date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                          </td>
+                          <td className="px-10 py-6 font-black text-blue-600">{formatUSD(p.totalPaid)}</td>
+                          <td className="px-10 py-6 text-emerald-600 font-bold">{formatUSD(p.principalPart)}</td>
+                          <td className="px-10 py-6 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
+                          <td className="px-10 py-6 font-bold text-slate-500">{formatUSD(p.remainingBalance)}</td>
+                          <td className="px-10 py-6 text-center">
+                            <button onClick={() => deletePayment(p.id)} className="text-slate-200 hover:text-rose-600 transition-colors p-2">
+                              <Trash2 size={20} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {payments.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-10 py-20 text-center text-slate-400 font-bold italic">
+                            No payment records found. Add your first payment to get started.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
+            </div>
+          )}
 
-              <div className="p-6 bg-blue-50 rounded-2xl flex gap-4 items-start border border-blue-100">
-                <AlertCircle className="text-blue-600 shrink-0" size={24} />
-                <p className="text-blue-900 text-sm font-medium">
-                  Changing the initial balance or interest rate will update the equity calculations on your dashboard instantly.
-                </p>
+          {activeTab === 'settings' && (
+            <div className="max-w-2xl mx-auto animate-in fade-in zoom-in-95 duration-500 space-y-10">
+              <header>
+                <h2 className="text-4xl font-black text-slate-900">System Setup</h2>
+                <p className="text-slate-500 text-lg font-medium">Configure your loan terms or manage your data.</p>
+              </header>
+
+              <div className="bg-white p-12 rounded-[3rem] shadow-sm border border-slate-100 space-y-10">
+                <div className="space-y-8">
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">House Nickname</label>
+                    <input 
+                      type="text" 
+                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
+                      value={config.nickname}
+                      onChange={e => setConfig({...config, nickname: e.target.value})}
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Initial Loan Balance ($)</label>
+                    <input 
+                      type="number" 
+                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
+                      value={config.initialBalance}
+                      onChange={e => setConfig({...config, initialBalance: parseFloat(e.target.value) || 0})}
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Current Interest Rate (%)</label>
+                    <input 
+                      type="number" 
+                      step="0.01"
+                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
+                      value={config.annualRate}
+                      onChange={e => setConfig({...config, annualRate: parseFloat(e.target.value) || 0})}
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-10 border-t border-slate-100 space-y-6">
+                  <h3 className="font-black text-lg">Safe-Keep Database</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <label className="flex items-center justify-center gap-3 px-6 py-5 bg-blue-50 text-blue-700 rounded-2xl font-bold cursor-pointer hover:bg-blue-100 transition-all">
+                      <Upload size={20} /> Restore Backup
+                      <input type="file" className="hidden" accept=".json" onChange={handleImport} />
+                    </label>
+                    <button 
+                      onClick={() => {
+                        if(confirm("DANGER: This will delete everything. Proceed?")) setPayments([]);
+                      }}
+                      className="flex items-center justify-center gap-3 px-6 py-5 bg-rose-50 text-rose-700 rounded-2xl font-bold hover:bg-rose-100 transition-all"
+                    >
+                      <Trash2 size={20} /> Reset All Data
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+
+        </div>
       </main>
-    </div>
-  );
-};
-
-const PaymentForm: React.FC<{
-  onSave: (p: any) => void; 
-  config: MortgageConfig;
-  lastBalance: number;
-}> = ({ onSave, config, lastBalance }) => {
-  const [data, setData] = useState({
-    date: new Date().toISOString().split('T')[0],
-    totalPaid: 0,
-    principalPart: 0,
-    interestPart: 0,
-    taxPart: 0,
-    insurancePart: 0,
-    remainingBalance: lastBalance,
-    note: "",
-    checkNumber: ""
-  });
-
-  const handleAutoSplit = () => {
-    // Standard split: Total - Taxes - Insurance = Net. Net is split between P and I.
-    const netPayment = data.totalPaid - data.taxPart - data.insurancePart;
-    const { principal, interest } = calculateSuggestedSplit(lastBalance, config.annualRate, netPayment);
-    setData({
-      ...data,
-      principalPart: principal,
-      interestPart: interest,
-      remainingBalance: Math.round((lastBalance - principal) * 100) / 100
-    });
-  };
-
-  const inputGroup = "space-y-2";
-  const labelStyle = "text-xs font-bold text-slate-500 uppercase tracking-widest ml-1";
-  const inputStyle = "w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-xl focus:ring-4 focus:ring-blue-100 outline-none transition-all placeholder:text-slate-300";
-
-  return (
-    <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
-      <header className="mb-10">
-        <h2 className="text-3xl font-black text-slate-900">Add Monthly Payment</h2>
-        <p className="text-slate-500 font-medium">Enter the details from your statement below.</p>
-      </header>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        {/* Left Side: Main Inputs */}
-        <div className="bg-white p-10 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-6">
-          <div className={inputGroup}>
-            <label className={labelStyle}>Payment Date</label>
-            <div className="relative">
-              <Calendar className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-              <input type="date" className={`${inputStyle} pl-16`} value={data.date} onChange={e => setData({...data, date: e.target.value})} />
-            </div>
-          </div>
-
-          <div className={inputGroup}>
-            <label className={labelStyle}>Total Amount Paid ($)</label>
-            <input 
-              type="number" 
-              placeholder="0.00"
-              className={inputStyle} 
-              value={data.totalPaid || ''} 
-              onChange={e => setData({...data, totalPaid: parseFloat(e.target.value) || 0})} 
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 pt-4">
-            <div className={inputGroup}>
-              <label className={labelStyle}>Taxes ($)</label>
-              <input 
-                type="number" 
-                placeholder="0.00"
-                className={inputStyle} 
-                value={data.taxPart || ''} 
-                onChange={e => setData({...data, taxPart: parseFloat(e.target.value) || 0})} 
-              />
-            </div>
-            <div className={inputGroup}>
-              <label className={labelStyle}>Insurance ($)</label>
-              <input 
-                type="number" 
-                placeholder="0.00"
-                className={inputStyle} 
-                value={data.insurancePart || ''} 
-                onChange={e => setData({...data, insurancePart: parseFloat(e.target.value) || 0})} 
-              />
-            </div>
-          </div>
-
-          <button 
-            onClick={handleAutoSplit}
-            className="w-full bg-blue-50 text-blue-700 py-5 rounded-2xl font-black text-lg flex items-center justify-center gap-3 hover:bg-blue-100 transition-all border-2 border-dashed border-blue-200"
-          >
-            <Calculator size={24} />
-            Calculate Principal Split
-          </button>
-        </div>
-
-        {/* Right Side: Calculated Split & Save */}
-        <div className="space-y-6">
-          <div className="bg-emerald-600 text-white p-10 rounded-[2.5rem] shadow-xl shadow-emerald-900/10 space-y-6">
-             <div className="flex justify-between items-center">
-                <h3 className="text-xl font-black">Calculated Result</h3>
-                <Save size={24} />
-             </div>
-             <div className="grid grid-cols-2 gap-6">
-                <div>
-                   <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">To Principal</p>
-                   <p className="text-3xl font-black">{formatUSD(data.principalPart)}</p>
-                </div>
-                <div>
-                   <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">To Interest</p>
-                   <p className="text-3xl font-black">{formatUSD(data.interestPart)}</p>
-                </div>
-             </div>
-             <div className="pt-6 border-t border-emerald-500/50">
-                <p className="text-emerald-200 text-xs font-bold uppercase tracking-widest mb-1">New Remaining Balance</p>
-                <p className="text-4xl font-black">{formatUSD(data.remainingBalance)}</p>
-             </div>
-          </div>
-
-          <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 space-y-4">
-            <div className={inputGroup}>
-              <label className={labelStyle}>Check / Ref Number (Optional)</label>
-              <input type="text" className={inputStyle} value={data.checkNumber} onChange={e => setData({...data, checkNumber: e.target.value})} />
-            </div>
-            <button 
-              disabled={!data.totalPaid || data.remainingBalance < 0}
-              onClick={() => onSave(data)}
-              className="w-full bg-slate-900 text-white py-6 rounded-2xl font-black text-xl hover:bg-black transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl shadow-slate-200"
-            >
-              Add to History
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };
