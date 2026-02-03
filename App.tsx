@@ -21,7 +21,8 @@ import {
   Download,
   Receipt,
   Pencil,
-  Hash
+  Hash,
+  Scale
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -53,6 +54,7 @@ interface MortgageConfig {
   nickname: string;
   initialBalance: number;
   annualRate: number;
+  initialTaxBalance: number;
 }
 
 // --- Utilities ---
@@ -97,7 +99,8 @@ const App: React.FC = () => {
   const [config, setConfig] = useState<MortgageConfig>({
     nickname: "Family Home",
     initialBalance: 230000,
-    annualRate: 3.25
+    annualRate: 3.25,
+    initialTaxBalance: 0
   });
 
   // Entry Form State
@@ -114,16 +117,16 @@ const App: React.FC = () => {
 
   // Load Data
   useEffect(() => {
-    const saved = localStorage.getItem('house_db_v2');
-    const savedCfg = localStorage.getItem('house_cfg_v2');
+    const saved = localStorage.getItem('house_db_v3');
+    const savedCfg = localStorage.getItem('house_cfg_v3');
     if (saved) setPayments(JSON.parse(saved));
     if (savedCfg) setConfig(JSON.parse(savedCfg));
   }, []);
 
   // Save Data
   useEffect(() => {
-    localStorage.setItem('house_db_v2', JSON.stringify(payments));
-    localStorage.setItem('house_cfg_v2', JSON.stringify(config));
+    localStorage.setItem('house_db_v3', JSON.stringify(payments));
+    localStorage.setItem('house_cfg_v3', JSON.stringify(config));
   }, [payments, config]);
 
   const stats = useMemo(() => {
@@ -131,20 +134,31 @@ const App: React.FC = () => {
     const currentBalance = sorted.length > 0 ? sorted[sorted.length - 1].remainingBalance : config.initialBalance;
     const totalPaid = payments.reduce((sum, p) => sum + p.totalPaid, 0);
     const totalInterest = payments.reduce((sum, p) => sum + p.interestPart, 0);
+    const totalTaxContributions = payments.reduce((sum, p) => sum + p.taxPart, 0);
+    
+    // YTD Taxes
+    const currentYear = new Date().getFullYear();
+    const ytdTax = payments
+      .filter(p => new Date(p.date).getFullYear() === currentYear)
+      .reduce((sum, p) => sum + p.taxPart, 0);
+
+    const currentTaxFund = config.initialTaxBalance + totalTaxContributions;
     const progress = Math.min(100, Math.max(0, ((config.initialBalance - currentBalance) / config.initialBalance) * 100));
     
-    return { currentBalance, totalPaid, totalInterest, progress };
+    return { currentBalance, totalPaid, totalInterest, progress, ytdTax, currentTaxFund };
   }, [payments, config]);
 
   // Calculate cumulative totals for history table
   const paymentsWithCumulative = useMemo(() => {
     const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     let runningTotal = 0;
+    let runningTax = config.initialTaxBalance;
     return sorted.map(p => {
       runningTotal += p.totalPaid;
-      return { ...p, cumulativePaid: runningTotal };
+      runningTax += p.taxPart;
+      return { ...p, cumulativePaid: runningTotal, currentTaxFund: runningTax };
     });
-  }, [payments]);
+  }, [payments, config.initialTaxBalance]);
 
   const handleMagicSplit = () => {
     let targetBalance = config.initialBalance;
@@ -156,7 +170,6 @@ const App: React.FC = () => {
             targetBalance = sorted[idx-1].remainingBalance;
         }
     } else {
-        // If not editing, use the balance of the most recent payment
         if (sorted.length > 0) {
           targetBalance = sorted[sorted.length - 1].remainingBalance;
         }
@@ -253,7 +266,7 @@ const App: React.FC = () => {
     return payments.slice(-12).map(p => ({
       name: new Date(p.date).toLocaleDateString('en-US', { month: 'short' }),
       balance: p.remainingBalance,
-      paid: p.principalPart,
+      tax: p.taxPart,
       interest: p.interestPart
     }));
   }, [payments]);
@@ -315,41 +328,37 @@ const App: React.FC = () => {
             <div className="animate-in fade-in slide-in-from-bottom-6 duration-700 space-y-10">
               <header>
                 <h2 className="text-4xl font-black text-slate-900">Home Overview</h2>
-                <p className="text-slate-500 text-lg font-medium mt-2">Checking in on your progress to owning your home.</p>
+                <p className="text-slate-500 text-lg font-medium mt-2">Checking in on your progress and tax savings.</p>
               </header>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <StatCard 
                   label="Remaining Balance" 
                   value={formatUSD(stats.currentBalance)} 
                   icon={Landmark} 
                   colorClass="bg-blue-50 text-blue-600" 
+                  subValue={`${Math.round(stats.progress)}% Paid Off`}
                 />
                 <StatCard 
-                  label="Loan Progress" 
-                  value={`${Math.round(stats.progress)}%`} 
-                  subValue="of loan completed"
-                  icon={TrendingDown} 
-                  colorClass="bg-emerald-50 text-emerald-600" 
-                />
-                <StatCard 
-                  label="Total Interest Paid" 
-                  value={formatUSD(stats.totalInterest)} 
-                  icon={Receipt} 
-                  colorClass="bg-rose-50 text-rose-600" 
-                />
-                <StatCard 
-                  label="Total Invested" 
-                  value={formatUSD(stats.totalPaid)} 
-                  icon={Wallet} 
+                  label="Current Tax Fund" 
+                  value={formatUSD(stats.currentTaxFund)} 
+                  icon={Scale} 
                   colorClass="bg-amber-50 text-amber-600" 
+                  subValue="Total pot for future bills"
+                />
+                <StatCard 
+                  label="YTD Taxes Collected" 
+                  value={formatUSD(stats.ytdTax)} 
+                  icon={Receipt} 
+                  colorClass="bg-orange-50 text-orange-600" 
+                  subValue={`Collected in ${new Date().getFullYear()}`}
                 />
               </div>
 
-              {payments.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100">
-                  <h3 className="text-xl font-black mb-8">Loan Paydown Trend</h3>
-                  <div className="h-[400px] w-full">
+                  <h3 className="text-xl font-black mb-8">Loan Paydown</h3>
+                  <div className="h-[300px] w-full">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={chartData}>
                         <defs>
@@ -367,12 +376,29 @@ const App: React.FC = () => {
                     </ResponsiveContainer>
                   </div>
                 </div>
-              )}
+
+                <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-100">
+                  <h3 className="text-xl font-black mb-8">Tax & Interest Breakdown</h3>
+                  <div className="h-[300px] w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="interest" name="Interest" fill="#f43f5e" radius={[4,4,0,0]} />
+                        <Bar dataKey="tax" name="Taxes" fill="#f59e0b" radius={[4,4,0,0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {activeTab === 'entry' && (
-            <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
+            <div className="max-w-5xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
               <header className="mb-10 flex justify-between items-end">
                 <div>
                     <h2 className="text-4xl font-black text-slate-900">{editingId ? 'Edit Payment Record' : 'New Payment Entry'}</h2>
@@ -414,22 +440,22 @@ const App: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                      <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Taxes ($)</label>
+                    <div className="space-y-3 p-4 bg-amber-50 rounded-2xl border border-amber-100">
+                      <label className="text-xs font-black text-amber-600 uppercase tracking-widest ml-1">Taxes ($)</label>
                       <input 
                         type="number" 
                         placeholder="0.00"
-                        className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                        className="w-full px-4 py-3 bg-white border border-amber-200 rounded-xl font-bold text-lg focus:ring-4 focus:ring-amber-100 outline-none transition-all"
                         value={formData.taxPart || ''}
                         onChange={e => setFormData({...formData, taxPart: parseFloat(e.target.value) || 0})}
                       />
                     </div>
-                    <div className="space-y-3">
+                    <div className="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
                       <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Insurance ($)</label>
                       <input 
                         type="number" 
                         placeholder="0.00"
-                        className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
+                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl font-bold text-lg focus:ring-4 focus:ring-blue-100 outline-none transition-all"
                         value={formData.insurancePart || ''}
                         onChange={e => setFormData({...formData, insurancePart: parseFloat(e.target.value) || 0})}
                       />
@@ -445,26 +471,30 @@ const App: React.FC = () => {
                 </div>
 
                 <div className="space-y-8">
-                  <div className="bg-emerald-600 text-white p-10 rounded-[3rem] shadow-xl shadow-emerald-600/20 space-y-6">
+                  <div className="bg-slate-900 text-white p-10 rounded-[3rem] shadow-xl space-y-6">
                     <div className="flex justify-between items-center">
-                      <h3 className="text-xl font-black">Result for Ledger</h3>
-                      <ShieldCheck size={32} />
+                      <h3 className="text-xl font-black text-blue-400">Transaction Summary</h3>
+                      <ShieldCheck size={32} className="text-emerald-400" />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">To Principal</p>
-                        <p className="text-2xl font-black">{formatUSD(formData.principalPart)}</p>
+                      <div className="bg-slate-800 p-4 rounded-2xl">
+                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">To Principal</p>
+                        <p className="text-xl font-black text-emerald-400">{formatUSD(formData.principalPart)}</p>
                       </div>
-                      <div>
-                        <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">To Interest</p>
-                        <p className="text-2xl font-black">{formatUSD(formData.interestPart)}</p>
+                      <div className="bg-slate-800 p-4 rounded-2xl">
+                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">To Tax Fund</p>
+                        <p className="text-xl font-black text-amber-400">{formatUSD(formData.taxPart)}</p>
                       </div>
                     </div>
-                    <div className="pt-6 border-t border-white/20">
-                      <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">Lifetime Paid to Date</p>
-                      <p className="text-4xl font-black">{formatUSD(stats.totalPaid + (editingId ? 0 : formData.totalPaid))}</p>
-                      <p className="text-emerald-200 text-[10px] font-bold uppercase tracking-widest mt-4 mb-1">New Balance After Payment</p>
-                      <p className="text-2xl font-black opacity-90">{formatUSD(formData.remainingBalance)}</p>
+                    <div className="pt-6 border-t border-slate-800 flex justify-between items-center">
+                      <div>
+                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">New Home Balance</p>
+                        <p className="text-2xl font-black">{formatUSD(formData.remainingBalance)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">Lifetime Invested</p>
+                        <p className="text-2xl font-black">{formatUSD(stats.totalPaid + (editingId ? 0 : formData.totalPaid))}</p>
+                      </div>
                     </div>
                   </div>
 
@@ -483,7 +513,7 @@ const App: React.FC = () => {
                     </div>
                     <button 
                       onClick={savePayment}
-                      className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl hover:bg-black transition-all active:scale-[0.98]"
+                      className="w-full py-6 bg-blue-600 text-white rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl shadow-blue-600/20 hover:bg-blue-700 transition-all active:scale-[0.98]"
                     >
                       <Save size={24} /> {editingId ? 'Update Record' : 'Save to Database'}
                     </button>
@@ -498,7 +528,7 @@ const App: React.FC = () => {
               <header className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div>
                   <h2 className="text-4xl font-black text-slate-900">Payment Ledger</h2>
-                  <p className="text-slate-500 text-lg font-medium mt-1">Every payment you've made, sorted by date.</p>
+                  <p className="text-slate-500 text-lg font-medium mt-1">Complete history of payments and tax collections.</p>
                 </div>
                 <button 
                    onClick={() => downloadFile(JSON.stringify(payments), 'mortgage_export.json', 'application/json')}
@@ -513,43 +543,46 @@ const App: React.FC = () => {
                   <table className="w-full text-left">
                     <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
                       <tr>
-                        <th className="px-8 py-6">Date</th>
-                        <th className="px-8 py-6">Check #</th>
-                        <th className="px-8 py-6">Total Paid</th>
-                        <th className="px-8 py-6">Principal</th>
-                        <th className="px-8 py-6">Interest</th>
-                        <th className="px-8 py-6">Paid to Date</th>
-                        <th className="px-8 py-6">Ending Balance</th>
-                        <th className="px-8 py-6 text-center">Actions</th>
+                        <th className="px-6 py-6">Date</th>
+                        <th className="px-6 py-6">Check #</th>
+                        <th className="px-6 py-6">Paid</th>
+                        <th className="px-6 py-6">Principal</th>
+                        <th className="px-6 py-6">Interest</th>
+                        <th className="px-6 py-6">Tax Fund</th>
+                        <th className="px-6 py-6">New Balance</th>
+                        <th className="px-6 py-6 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {[...paymentsWithCumulative].reverse().map(p => (
                         <tr key={p.id} className="hover:bg-blue-50/30 transition-colors group">
-                          <td className="px-8 py-6 font-extrabold text-slate-900 whitespace-nowrap">
+                          <td className="px-6 py-6 font-extrabold text-slate-900 whitespace-nowrap text-sm">
                             {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                           </td>
-                          <td className="px-8 py-6 font-bold text-slate-400">
-                            {p.checkNumber ? <span className="bg-slate-100 px-3 py-1 rounded-lg text-slate-600">{p.checkNumber}</span> : '-'}
+                          <td className="px-6 py-6 font-bold text-slate-400 text-sm">
+                            {p.checkNumber ? <span className="bg-slate-100 px-3 py-1 rounded-lg text-slate-600 font-mono">{p.checkNumber}</span> : '-'}
                           </td>
-                          <td className="px-8 py-6 font-black text-blue-600">{formatUSD(p.totalPaid)}</td>
-                          <td className="px-8 py-6 text-emerald-600 font-bold">{formatUSD(p.principalPart)}</td>
-                          <td className="px-8 py-6 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
-                          <td className="px-8 py-6 font-black text-slate-800 bg-slate-50/50">{formatUSD(p.cumulativePaid)}</td>
-                          <td className="px-8 py-6 font-bold text-slate-400 italic">{formatUSD(p.remainingBalance)}</td>
-                          <td className="px-8 py-6 text-center">
-                            <div className="flex items-center justify-center gap-2">
+                          <td className="px-6 py-6 font-black text-blue-600 text-sm">{formatUSD(p.totalPaid)}</td>
+                          <td className="px-6 py-6 text-emerald-600 font-bold text-sm">{formatUSD(p.principalPart)}</td>
+                          <td className="px-6 py-6 text-rose-500 font-medium text-sm">{formatUSD(p.interestPart)}</td>
+                          <td className="px-6 py-6">
+                            <div className="flex flex-col">
+                                <span className="text-amber-600 font-black text-sm">{formatUSD(p.taxPart)}</span>
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter">Pot: {formatUSD(p.currentTaxFund)}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-6 font-bold text-slate-500 italic text-sm">{formatUSD(p.remainingBalance)}</td>
+                          <td className="px-6 py-6 text-center">
+                            <div className="flex items-center justify-center gap-1">
                                 <button 
                                     onClick={() => startEditing(p)} 
-                                    className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
-                                    title="Edit entry"
+                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
                                 >
                                     <Pencil size={18} />
                                 </button>
                                 <button 
                                     onClick={() => deletePayment(p.id)} 
-                                    className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
-                                    title="Delete entry"
+                                    className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
                                 >
                                     <Trash2 size={18} />
                                 </button>
@@ -575,7 +608,7 @@ const App: React.FC = () => {
             <div className="max-w-2xl mx-auto animate-in fade-in zoom-in-95 duration-500 space-y-10">
               <header>
                 <h2 className="text-4xl font-black text-slate-900">System Setup</h2>
-                <p className="text-slate-500 text-lg font-medium">Configure your loan terms or manage your data.</p>
+                <p className="text-slate-500 text-lg font-medium">Configure loan terms and tax fund starting balance.</p>
               </header>
 
               <div className="bg-white p-12 rounded-[3rem] shadow-sm border border-slate-100 space-y-10">
@@ -589,23 +622,37 @@ const App: React.FC = () => {
                       onChange={e => setConfig({...config, nickname: e.target.value})}
                     />
                   </div>
-                  <div className="space-y-3">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Initial Loan Balance ($)</label>
-                    <input 
-                      type="number" 
-                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
-                      value={config.initialBalance}
-                      onChange={e => setConfig({...config, initialBalance: parseFloat(e.target.value) || 0})}
-                    />
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Loan Balance ($)</label>
+                        <input 
+                        type="number" 
+                        className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
+                        value={config.initialBalance}
+                        onChange={e => setConfig({...config, initialBalance: parseFloat(e.target.value) || 0})}
+                        />
+                    </div>
+                    <div className="space-y-3">
+                        <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Int. Rate (%)</label>
+                        <input 
+                        type="number" 
+                        step="0.01"
+                        className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
+                        value={config.annualRate}
+                        onChange={e => setConfig({...config, annualRate: parseFloat(e.target.value) || 0})}
+                        />
+                    </div>
                   </div>
-                  <div className="space-y-3">
-                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Current Interest Rate (%)</label>
+                  <div className="space-y-3 p-6 bg-amber-50 rounded-[2rem] border border-amber-100">
+                    <label className="text-xs font-black text-amber-600 uppercase tracking-widest ml-1 flex items-center gap-2">
+                      <Scale size={14} /> Initial Tax Fund Balance ($)
+                    </label>
+                    <p className="text-xs text-amber-700/60 mb-3">Set how much money is already saved for taxes before starting this tracker.</p>
                     <input 
                       type="number" 
-                      step="0.01"
-                      className="w-full px-6 py-5 bg-slate-50 border border-slate-200 rounded-2xl text-xl font-bold focus:ring-4 focus:ring-blue-100 outline-none"
-                      value={config.annualRate}
-                      onChange={e => setConfig({...config, annualRate: parseFloat(e.target.value) || 0})}
+                      className="w-full px-6 py-5 bg-white border border-amber-200 rounded-2xl text-xl font-black text-amber-700 focus:ring-4 focus:ring-amber-100 outline-none"
+                      value={config.initialTaxBalance}
+                      onChange={e => setConfig({...config, initialTaxBalance: parseFloat(e.target.value) || 0})}
                     />
                   </div>
                 </div>
@@ -613,7 +660,7 @@ const App: React.FC = () => {
                 <div className="pt-10 border-t border-slate-100 space-y-6">
                   <h3 className="font-black text-lg">Safe-Keep Database</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <label className="flex items-center justify-center gap-3 px-6 py-5 bg-blue-50 text-blue-700 rounded-2xl font-bold cursor-pointer hover:bg-blue-100 transition-all">
+                    <label className="flex items-center justify-center gap-3 px-6 py-5 bg-blue-50 text-blue-700 rounded-2xl font-bold cursor-pointer hover:bg-blue-100 transition-all text-sm">
                       <Upload size={20} /> Restore Backup
                       <input type="file" className="hidden" accept=".json" onChange={handleImport} />
                     </label>
@@ -621,7 +668,7 @@ const App: React.FC = () => {
                       onClick={() => {
                         if(confirm("DANGER: This will delete everything. Proceed?")) setPayments([]);
                       }}
-                      className="flex items-center justify-center gap-3 px-6 py-5 bg-rose-50 text-rose-700 rounded-2xl font-bold hover:bg-rose-100 transition-all"
+                      className="flex items-center justify-center gap-3 px-6 py-5 bg-rose-50 text-rose-700 rounded-2xl font-bold hover:bg-rose-100 transition-all text-sm"
                     >
                       <Trash2 size={20} /> Reset All Data
                     </button>
