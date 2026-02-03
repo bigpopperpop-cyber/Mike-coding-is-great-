@@ -19,7 +19,8 @@ import {
   X,
   Upload,
   Download,
-  Receipt
+  Receipt,
+  Pencil
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -91,6 +92,7 @@ const StatCard = ({ label, value, icon: Icon, colorClass, subValue }: any) => (
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dash' | 'entry' | 'history' | 'settings'>('dash');
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [config, setConfig] = useState<MortgageConfig>({
     nickname: "Family Home",
     initialBalance: 230000,
@@ -134,12 +136,23 @@ const App: React.FC = () => {
   }, [payments, config]);
 
   const handleMagicSplit = () => {
-    const currentBal = payments.length > 0 
-      ? payments[payments.length - 1].remainingBalance 
-      : config.initialBalance;
+    // If editing, we should ideally use the balance *before* this record.
+    // For simplicity, we use the current balance from the dashboard stats
+    // or the previous record in the chain if found.
+    let targetBalance = config.initialBalance;
+    
+    if (editingId) {
+        const sorted = [...payments].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const idx = sorted.findIndex(p => p.id === editingId);
+        if (idx > 0) {
+            targetBalance = sorted[idx-1].remainingBalance;
+        }
+    } else {
+        targetBalance = stats.currentBalance;
+    }
     
     const monthlyRate = (config.annualRate / 100) / 12;
-    const interest = currentBal * monthlyRate;
+    const interest = targetBalance * monthlyRate;
     const netForLoan = formData.totalPaid - formData.taxPart - formData.insurancePart;
     const principal = netForLoan - interest;
 
@@ -147,21 +160,36 @@ const App: React.FC = () => {
       ...formData,
       interestPart: Math.round(interest * 100) / 100,
       principalPart: Math.round(principal * 100) / 100,
-      remainingBalance: Math.round((currentBal - principal) * 100) / 100
+      remainingBalance: Math.round((targetBalance - principal) * 100) / 100
     });
   };
 
   const savePayment = () => {
-    if (!formData.totalPaid || formData.remainingBalance <= 0) {
-      alert("Please ensure the total amount is correct.");
+    if (!formData.totalPaid || formData.remainingBalance < 0) {
+      alert("Please ensure the payment details are correct.");
       return;
     }
-    const newRecord: PaymentRecord = {
-      ...formData,
-      id: crypto.randomUUID()
-    };
-    setPayments([...payments, newRecord].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-    setActiveTab('dash');
+
+    if (editingId) {
+      const updatedPayments = payments.map(p => 
+        p.id === editingId ? { ...formData, id: editingId } : p
+      );
+      setPayments(updatedPayments.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+      setEditingId(null);
+    } else {
+      const newRecord: PaymentRecord = {
+        ...formData,
+        id: crypto.randomUUID()
+      };
+      setPayments([...payments, newRecord].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+    }
+
+    setActiveTab('history');
+    resetForm();
+  };
+
+  const resetForm = () => {
+    setEditingId(null);
     setFormData({
       date: new Date().toISOString().split('T')[0],
       totalPaid: 0,
@@ -172,6 +200,21 @@ const App: React.FC = () => {
       remainingBalance: 0,
       checkNumber: ""
     });
+  };
+
+  const startEditing = (record: PaymentRecord) => {
+    setEditingId(record.id);
+    setFormData({
+      date: record.date,
+      totalPaid: record.totalPaid,
+      taxPart: record.taxPart,
+      insurancePart: record.insurancePart,
+      principalPart: record.principalPart,
+      interestPart: record.interestPart,
+      remainingBalance: record.remainingBalance,
+      checkNumber: record.checkNumber || ""
+    });
+    setActiveTab('entry');
   };
 
   const deletePayment = (id: string) => {
@@ -221,13 +264,16 @@ const App: React.FC = () => {
         <div className="flex-1 space-y-3">
           {[
             { id: 'dash', label: 'Dashboard', icon: TrendingDown },
-            { id: 'entry', label: 'Add Payment', icon: PlusCircle },
+            { id: 'entry', label: editingId ? 'Editing Record' : 'Add Payment', icon: PlusCircle },
             { id: 'history', label: 'View History', icon: History },
             { id: 'settings', label: 'System Settings', icon: Settings },
           ].map(item => (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id as any)}
+              onClick={() => {
+                  if (item.id !== 'entry') resetForm();
+                  setActiveTab(item.id as any);
+              }}
               className={`w-full flex items-center gap-4 px-6 py-5 rounded-[1.5rem] font-extrabold transition-all group ${
                 activeTab === item.id 
                   ? 'bg-blue-600 text-white shadow-xl shadow-blue-600/30 translate-x-1' 
@@ -316,9 +362,21 @@ const App: React.FC = () => {
 
           {activeTab === 'entry' && (
             <div className="max-w-4xl mx-auto animate-in fade-in slide-in-from-right-8 duration-500">
-              <header className="mb-10">
-                <h2 className="text-4xl font-black text-slate-900">New Payment Entry</h2>
-                <p className="text-slate-500 text-lg font-medium">Use your bank statement to fill in the boxes below.</p>
+              <header className="mb-10 flex justify-between items-end">
+                <div>
+                    <h2 className="text-4xl font-black text-slate-900">{editingId ? 'Edit Payment Record' : 'New Payment Entry'}</h2>
+                    <p className="text-slate-500 text-lg font-medium mt-1">
+                        {editingId ? 'Updating an existing payment entry.' : 'Use your bank statement to fill in the boxes below.'}
+                    </p>
+                </div>
+                {editingId && (
+                    <button 
+                        onClick={() => { resetForm(); setActiveTab('history'); }}
+                        className="mb-1 px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-all flex items-center gap-2"
+                    >
+                        <X size={20} /> Cancel Edit
+                    </button>
+                )}
               </header>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -392,7 +450,7 @@ const App: React.FC = () => {
                       </div>
                     </div>
                     <div className="pt-6 border-t border-white/20">
-                      <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">New Balance After Payment</p>
+                      <p className="text-emerald-200 text-[10px] font-black uppercase tracking-widest mb-1">Ending Balance</p>
                       <p className="text-4xl font-black">{formatUSD(formData.remainingBalance)}</p>
                     </div>
                   </div>
@@ -412,7 +470,7 @@ const App: React.FC = () => {
                       onClick={savePayment}
                       className="w-full py-6 bg-slate-900 text-white rounded-2xl font-black text-xl flex items-center justify-center gap-3 shadow-xl hover:bg-black transition-all active:scale-[0.98]"
                     >
-                      <Save size={24} /> Save to Database
+                      <Save size={24} /> {editingId ? 'Update Record' : 'Save to Database'}
                     </button>
                   </div>
                 </div>
@@ -445,7 +503,7 @@ const App: React.FC = () => {
                         <th className="px-10 py-6">Principal</th>
                         <th className="px-10 py-6">Interest</th>
                         <th className="px-10 py-6">New Balance</th>
-                        <th className="px-10 py-6 text-center">Delete</th>
+                        <th className="px-10 py-6 text-center">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -459,9 +517,22 @@ const App: React.FC = () => {
                           <td className="px-10 py-6 text-rose-500 font-medium">{formatUSD(p.interestPart)}</td>
                           <td className="px-10 py-6 font-bold text-slate-500">{formatUSD(p.remainingBalance)}</td>
                           <td className="px-10 py-6 text-center">
-                            <button onClick={() => deletePayment(p.id)} className="text-slate-200 hover:text-rose-600 transition-colors p-2">
-                              <Trash2 size={20} />
-                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                                <button 
+                                    onClick={() => startEditing(p)} 
+                                    className="p-3 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all"
+                                    title="Edit entry"
+                                >
+                                    <Pencil size={20} />
+                                </button>
+                                <button 
+                                    onClick={() => deletePayment(p.id)} 
+                                    className="p-3 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all"
+                                    title="Delete entry"
+                                >
+                                    <Trash2 size={20} />
+                                </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
